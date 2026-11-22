@@ -2,9 +2,12 @@ import html
 import os
 import random
 import time
+from collections import deque
 
 import numpy as np
+import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 import matplotlib
 from matplotlib.text import Text
 
@@ -25,14 +28,14 @@ except ImportError:
 # 0. SETTINGS
 # ==========================================
 
-STEP_DELAY = 0.6                 # seconds between animation frames
+STEP_DELAY = 0.55                # seconds between animation frames
 USE_ANTI_BACKTRACKING = True     # must match the setting used in training
-OBSTACLE_MODE = "routes"         # must match OBSTACLE_MODE in q_learning_delivery.py
+OBSTACLE_MODE = "routes"         # must match OBSTACLE_MODE used in training
 Q_TABLE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "q_table.npy")
 
 
 # ==========================================
-# 1. PAGE CONFIGURATION & LIGHT-MODE STYLING
+# 1. PAGE CONFIGURATION
 # ==========================================
 
 st.set_page_config(
@@ -41,39 +44,77 @@ st.set_page_config(
     layout="wide"
 )
 
+
+# ==========================================
+# 2. SMART STICKY HEADER JAVASCRIPT
+# Hide header on scroll down, reveal on scroll up
+# ==========================================
+
+smart_scroll_js = """
+<script>
+const parentWin = window.parent;
+const parentDoc = window.parent.document;
+
+if (!parentWin._campusSmartHeaderInit) {
+    let lastScrollY = 0;
+    let ticking = false;
+
+    const scrollHandler = function(e) {
+        if (!ticking) {
+            parentWin.requestAnimationFrame(function() {
+                let currentScrollY = parentWin.scrollY;
+                if (e.target && e.target.scrollTop !== undefined && e.target.tagName !== 'IFRAME') {
+                    currentScrollY = e.target.scrollTop;
+                }
+
+                if (currentScrollY <= 70) {
+                    parentDoc.body.classList.remove('hide-smart-header');
+                } else if (currentScrollY > lastScrollY + 15) {
+                    parentDoc.body.classList.add('hide-smart-header');
+                } else if (currentScrollY < lastScrollY - 15) {
+                    parentDoc.body.classList.remove('hide-smart-header');
+                }
+                lastScrollY = currentScrollY;
+                ticking = false;
+            });
+            ticking = true;
+        }
+    };
+
+    parentDoc.addEventListener('scroll', scrollHandler, true);
+    parentWin._campusSmartHeaderInit = true;
+}
+</script>
+"""
+components.html(smart_scroll_js, height=0, width=0)
+
+
+# ==========================================
+# 3. ADVANCED CSS (LIGHT MODE + BENTO + 3D UI)
+# ==========================================
+
 st.markdown("""
 <style>
-    /* ---- Force a complete light look ---- */
     :root { color-scheme: light; }
 
+    /* ---- Global light background & spacing ---- */
     html, body, .stApp,
     [data-testid="stAppViewContainer"], [data-testid="stMain"],
     [data-testid="stHeader"], [data-testid="stToolbar"],
     [data-testid="stBottom"], .main {
-        background-color: #f8fafc !important;
-        color: #1e293b !important;
+        background-color: #f4f8fb !important;
+        color: #0f172a !important;
     }
     [data-testid="stSidebar"], [data-testid="stSidebar"] > div {
-        background-color: #f1f5f9 !important;
+        background-color: #eef4f9 !important;
     }
-
-    /* ---- Compact top/bottom page padding so View 1 fits in one screen ---- */
     .block-container {
-        padding-top: 1.5rem !important;
-        padding-bottom: 1.2rem !important;
-        max-width: 1400px;
+        padding-top: 1.2rem !important;
+        padding-bottom: 1.8rem !important;
+        max-width: 1420px;
     }
 
-    /* ---- Unified white cards for st.container(border=True) ---- */
-    [data-testid="stVerticalBlockBorderWrapper"] {
-        background-color: #ffffff !important;
-        border: 1px solid #cbd5e1 !important;
-        border-radius: 14px !important;
-        padding: 0.6rem 0.8rem !important;
-        box-shadow: 0 2px 10px rgba(15, 23, 42, 0.05) !important;
-    }
-
-    /* ---- Normal text ---- */
+    /* ---- Base text visibility ---- */
     .stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp h5, .stApp h6,
     .stApp p, .stApp li, .stApp label,
     .stApp [data-testid="stMarkdownContainer"],
@@ -81,148 +122,408 @@ st.markdown("""
     .stApp [data-testid="stMarkdownContainer"] li,
     .stApp [data-testid="stCaptionContainer"],
     .stApp [data-testid="stWidgetLabel"],
-    .stApp [data-testid="stWidgetLabel"] p,
-    .stApp [data-testid="stHeader"] *,
-    .stApp [data-testid="stToolbar"] * {
+    .stApp [data-testid="stWidgetLabel"] p {
         color: #1e293b !important;
     }
 
-    /* ---- Dropdowns (selectbox) ---- */
+    /* ---- Smart Sticky Banner ---- */
+    div.element-container:has(.campus-header) {
+        position: sticky !important;
+        top: 0.75rem !important;
+        z-index: 9999 !important;
+        transition: transform 0.38s cubic-bezier(0.3, 0, 0.2, 1) !important;
+    }
+    body.hide-smart-header div.element-container:has(.campus-header) {
+        transform: translateY(-190px) !important;
+    }
+
+    .campus-header {
+        width: 100%;
+        padding: 20px 30px;
+        margin-bottom: 14px;
+        border-radius: 18px;
+        position: relative;
+        overflow: hidden;
+        background: linear-gradient(100deg, #0b192c 0%, #0e4a66 50%, #0d7490 100%);
+        border: 1px solid rgba(56, 189, 248, 0.35);
+        box-shadow: 0 12px 30px rgba(11, 25, 44, 0.22), inset 0 0 36px rgba(6, 182, 212, 0.18);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+    }
+    .campus-header::before {
+        content: "";
+        position: absolute; left: 8%; top: -60px; width: 220px; height: 220px;
+        background: radial-gradient(circle, rgba(6, 182, 212, 0.35) 0%, transparent 70%);
+        pointer-events: none;
+    }
+    .campus-header::after {
+        content: "";
+        position: absolute; right: 8%; bottom: -70px; width: 240px; height: 240px;
+        background: radial-gradient(circle, rgba(20, 184, 166, 0.32) 0%, transparent 70%);
+        pointer-events: none;
+    }
+    .header-left {
+        display: flex; align-items: center; gap: 16px; z-index: 2;
+    }
+    .header-logo {
+        width: 52px; height: 52px; border-radius: 14px;
+        background: rgba(255, 255, 255, 0.12);
+        border: 1px solid rgba(255, 255, 255, 0.28);
+        display: flex; align-items: center; justify-content: center;
+        font-size: 28px;
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2);
+    }
+    .header-title {
+        margin: 0;
+        color: #ffffff !important;
+        font-size: 26px;
+        font-weight: 900;
+        letter-spacing: 0.3px;
+        text-shadow: 0 2px 14px rgba(6, 182, 212, 0.45);
+        line-height: 1.15;
+    }
+    .header-subtitle {
+        margin-top: 4px;
+        color: #bae6fd !important;
+        font-size: 13px;
+        font-weight: 500;
+        letter-spacing: 0.6px;
+    }
+    .header-pill {
+        z-index: 2;
+        display: inline-flex; align-items: center; gap: 8px;
+        background: rgba(255, 255, 255, 0.13);
+        border: 1px solid rgba(186, 230, 253, 0.35);
+        backdrop-filter: blur(8px);
+        padding: 7px 16px;
+        border-radius: 999px;
+        color: #f0f9ff !important;
+        font-size: 12.5px;
+        font-weight: 700;
+        white-space: nowrap;
+    }
+    .live-dot {
+        width: 9px; height: 9px; border-radius: 50%;
+        background: #34d399;
+        box-shadow: 0 0 10px #34d399;
+        animation: pulseGlow 1.8s infinite;
+    }
+    @keyframes pulseGlow {
+        0%, 100% { opacity: 1; transform: scale(1); }
+        50% { opacity: 0.45; transform: scale(1.25); }
+    }
+    @keyframes gradientMove {
+        0% { background-position: 0% 50%; }
+        100% { background-position: 200% 50%; }
+    }
+
+    /* ---- Bento Card System with Hover Lift ---- */
+    div[data-testid="stVerticalBlockBorderWrapper"]:has(> div > div[data-testid="stVerticalBlock"] .bento-marker) {
+        background: linear-gradient(180deg, #ffffff 0%, #f9fcff 100%) !important;
+        border: 1px solid #dbeafe !important;
+        border-top: 4px solid #0891b2 !important;
+        border-radius: 18px !important;
+        padding: 10px 14px 16px 14px !important;
+        box-shadow: 0 8px 22px rgba(14, 116, 144, 0.08) !important;
+        transition: transform 0.25s ease, box-shadow 0.25s ease !important;
+    }
+    div[data-testid="stVerticalBlockBorderWrapper"]:has(> div > div[data-testid="stVerticalBlock"] .bento-marker):hover {
+        transform: translateY(-4px) !important;
+        box-shadow: 0 16px 32px rgba(14, 116, 144, 0.16) !important;
+    }
+
+    /* ---- Section Headers with Glowing Dot ---- */
+    .section-header {
+        display: flex; align-items: center; justify-content: space-between;
+        margin: 2px 0 12px 0;
+    }
+    .section-header-left {
+        display: flex; align-items: center; gap: 10px;
+    }
+    .section-header .dot {
+        width: 9px; height: 9px; border-radius: 50%;
+        background: linear-gradient(135deg, #22d3ee, #0d9488);
+        box-shadow: 0 0 9px rgba(6, 182, 212, 0.65);
+    }
+    .section-header span.label {
+        font-size: 16.5px; font-weight: 800; color: #0f172a !important;
+    }
+    .section-chip {
+        background: #ecfeff; color: #0e7490 !important;
+        border: 1px solid #a5f3fc; border-radius: 999px;
+        font-size: 11px; font-weight: 700; padding: 3px 10px;
+    }
+
+    /* ---- 3D Hover Metric Cards ---- */
+    .stApp [data-testid="stMetric"] {
+        background: linear-gradient(180deg, #ffffff 0%, #f8fdff 100%) !important;
+        border: 1px solid #dbeafe !important;
+        border-top: 4px solid #0891b2 !important;
+        border-radius: 14px !important;
+        padding: 14px 16px !important;
+        box-shadow: 0 6px 16px rgba(15, 23, 42, 0.07) !important;
+        transition: transform 0.25s ease, box-shadow 0.25s ease !important;
+    }
+    .stApp [data-testid="stMetric"]:hover {
+        transform: translateY(-5px) !important;
+        box-shadow: 0 14px 26px rgba(8, 145, 178, 0.18) !important;
+    }
+    .stApp [data-testid="stMetricLabel"],
+    .stApp [data-testid="stMetricLabel"] *,
+    .stApp [data-testid="stMetricValue"],
+    .stApp [data-testid="stMetricValue"] * {
+        color: #0f172a !important;
+        -webkit-text-fill-color: #0f172a !important;
+    }
+
+    /* ---- Dropdowns (Selectbox) ---- */
     .stApp [data-baseweb="select"] > div {
         background-color: #ffffff !important;
         border: 1px solid #cbd5e1 !important;
-        border-radius: 8px !important;
+        border-radius: 10px !important;
+        transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    }
+    .stApp [data-baseweb="select"] > div:hover {
+        border-color: #0891b2 !important;
+        box-shadow: 0 0 0 3px rgba(6, 182, 212, 0.12) !important;
     }
     .stApp [data-baseweb="select"] *,
     .stApp [data-baseweb="select"] input {
-        color: #1e293b !important;
-        -webkit-text-fill-color: #1e293b !important;
+        color: #0f172a !important;
+        -webkit-text-fill-color: #0f172a !important;
     }
     .stApp [data-baseweb="select"] svg { fill: #475569 !important; }
-
     [data-baseweb="popover"], [data-baseweb="popover"] > div,
-    [data-baseweb="menu"], ul[role="listbox"] {
+    [data-baseweb="menu"], ul[role="listbox"],
+    [data-baseweb="popover"] li, [data-baseweb="menu"] li, ul[role="listbox"] li {
         background-color: #ffffff !important;
-        color: #1e293b !important;
+        color: #0f172a !important;
     }
-    [data-baseweb="popover"] li, [data-baseweb="menu"] li,
-    ul[role="listbox"] li {
-        background-color: #ffffff !important;
-        color: #1e293b !important;
-    }
-    [data-baseweb="popover"] li *, [data-baseweb="menu"] li *,
-    ul[role="listbox"] li * {
-        color: #1e293b !important;
+    [data-baseweb="popover"] li *, ul[role="listbox"] li * {
+        color: #0f172a !important;
     }
     [data-baseweb="popover"] li:hover, ul[role="listbox"] li:hover,
     ul[role="listbox"] li[aria-selected="true"] {
         background-color: #e0f2fe !important;
     }
 
-    /* ---- Radio buttons ---- */
-    .stApp [data-testid="stRadio"] label,
-    .stApp [data-testid="stRadio"] label *,
-    .stApp [data-testid="stRadio"] p {
-        color: #1e293b !important;
-    }
-
-    /* ---- Expander ---- */
-    .stApp [data-testid="stExpander"] {
-        background-color: #ffffff !important;
-        border: 1px solid #cbd5e1 !important;
-        border-radius: 10px;
-    }
-    .stApp [data-testid="stExpander"] summary,
-    .stApp [data-testid="stExpander"] summary *,
-    .stApp [data-testid="stExpander"] details,
-    .stApp [data-testid="stExpander"] [data-testid="stExpanderDetails"] * {
-        color: #1e293b !important;
-        background-color: transparent !important;
-    }
-    .stApp [data-testid="stExpander"] summary:hover {
-        background-color: #f1f5f9 !important;
-    }
-
-    /* ---- Alerts ---- */
-    .stApp [data-testid="stAlert"],
-    .stApp [data-testid="stAlertContainer"],
-    .stApp [data-testid="stNotification"] {
-        background: #ffffff !important;
-        background-color: #ffffff !important;
-        border: 1px solid #cbd5e1 !important;
-        border-left: 5px solid #06b6d4 !important;
-        border-radius: 10px;
-    }
-    .stApp [data-testid="stAlert"] *,
-    .stApp [data-testid="stAlertContainer"] *,
-    .stApp [data-testid="stNotification"] * {
-        background: transparent !important;
-        background-color: transparent !important;
-        color: #1e293b !important;
-        -webkit-text-fill-color: #1e293b !important;
-    }
-    .stApp [data-testid="stAlert"] [data-testid="stAlertContainer"] {
-        border: none !important;
-    }
-
-    /* ---- Metric cards ---- */
-    .stApp [data-testid="stMetric"] {
-        background: #ffffff !important;
-        border: 1px solid #cbd5e1 !important;
-        border-left: 5px solid #06b6d4 !important;
-        border-radius: 10px;
-        padding: 10px 14px;
-    }
-    .stApp [data-testid="stMetricLabel"],
-    .stApp [data-testid="stMetricLabel"] *,
-    .stApp [data-testid="stMetricValue"],
-    .stApp [data-testid="stMetricValue"] * {
-        color: #1e293b !important;
-        -webkit-text-fill-color: #1e293b !important;
-    }
-    .stApp [data-testid="stMetricDelta"],
-    .stApp [data-testid="stMetricDelta"] *,
-    .stApp [data-testid="stMetricDelta"] svg {
-        color: #334155 !important;
-        fill: #334155 !important;
-        -webkit-text-fill-color: #334155 !important;
-        opacity: 1 !important;
-    }
-
-    /* ---- Buttons ---- */
+    /* ---- 3D Tactile Primary Buttons ---- */
     .stApp div.stButton > button,
     .stApp [data-testid="stBaseButton-secondary"],
     .stApp [data-testid="stBaseButton-primary"] {
         width: 100%;
-        background: linear-gradient(90deg, #0d9488 0%, #06b6d4 100%) !important;
+        background: linear-gradient(180deg, #0d9488 0%, #0891b2 55%, #0e7490 100%) !important;
         border: none !important;
-        border-radius: 10px;
-        padding: 0.65rem 1rem;
-        font-weight: 700;
+        border-bottom: 3px solid #155e75 !important;
+        border-radius: 12px !important;
+        padding: 11px 22px !important;
+        font-weight: 800 !important;
+        box-shadow: 0 5px 0 #155e75, 0 8px 18px rgba(8, 145, 178, 0.30) !important;
+        transform: translateY(0);
+        transition: transform 0.12s ease, box-shadow 0.12s ease, background 0.2s ease !important;
     }
     .stApp div.stButton > button,
     .stApp div.stButton > button *,
-    .stApp div.stButton button [data-testid="stMarkdownContainer"] p,
     .stApp [data-testid="stBaseButton-secondary"] *,
     .stApp [data-testid="stBaseButton-primary"] * {
         color: #ffffff !important;
     }
     .stApp div.stButton > button:hover,
     .stApp [data-testid="stBaseButton-secondary"]:hover {
-        background: linear-gradient(90deg, #0f766e 0%, #0891b2 100%) !important;
+        background: linear-gradient(180deg, #14b8a6 0%, #06b6d4 55%, #0891b2 100%) !important;
+        transform: translateY(-2px);
+        box-shadow: 0 7px 0 #155e75, 0 14px 24px rgba(8, 145, 178, 0.38) !important;
+    }
+    .stApp div.stButton > button:active,
+    .stApp [data-testid="stBaseButton-secondary"]:active {
+        transform: translateY(3px);
+        box-shadow: 0 2px 0 #155e75, 0 4px 8px rgba(8, 145, 178, 0.28) !important;
+    }
+
+    /* ---- 3D White Download Button ---- */
+    div.stDownloadButton > button {
+        background: linear-gradient(180deg, #ffffff 0%, #f0f9ff 100%) !important;
+        color: #0e7490 !important;
+        border: 1px solid #bae6fd !important;
+        border-bottom: 3px solid #0e7490 !important;
+        border-radius: 12px !important;
+        padding: 11px 22px !important;
+        font-weight: 800 !important;
+        width: 100%;
+        box-shadow: 0 5px 0 #0e7490, 0 8px 16px rgba(14, 116, 144, 0.12) !important;
+        transition: transform 0.12s ease, box-shadow 0.12s ease !important;
+    }
+    div.stDownloadButton > button * { color: #0e7490 !important; }
+    div.stDownloadButton > button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 7px 0 #0e7490, 0 14px 22px rgba(14, 116, 144, 0.2) !important;
+    }
+    div.stDownloadButton > button:active {
+        transform: translateY(3px);
+        box-shadow: 0 2px 0 #0e7490, 0 4px 8px rgba(14, 116, 144, 0.14) !important;
+    }
+
+    /* ---- Order Snapshot Mini-Cards (Hover Effect) ---- */
+    .snapshot-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 10px;
+        margin: 12px 0 14px 0;
+    }
+    .snapshot-item {
+        background: linear-gradient(180deg, #ffffff 0%, #f4fbff 100%);
+        border: 1px solid #dbeafe;
+        border-bottom: 3px solid #7dd3fc;
+        border-radius: 12px;
+        padding: 10px 13px;
+        box-shadow: 0 3px 8px rgba(14, 116, 144, 0.05);
+        transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+    }
+    .snapshot-item:hover {
+        transform: translateY(-3px);
+        border-bottom-color: #0891b2;
+        box-shadow: 0 8px 16px rgba(14, 116, 144, 0.13);
+    }
+    .snap-label {
+        color: #64748b; font-size: 10.5px; font-weight: 800;
+        text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 3px;
+    }
+    .snap-val {
+        color: #0f172a; font-size: 13.5px; font-weight: 800; line-height: 1.3;
+    }
+
+    /* ---- Pre-Dispatch Advisor Banner (SL ETA Ready Slot) ---- */
+    .advisor-strip {
+        background: radial-gradient(circle at 92% 10%, rgba(6, 182, 212, 0.10), transparent 55%),
+                    linear-gradient(135deg, #f0fdfa 0%, #f0f9ff 100%);
+        border: 1px solid #a5f3fc;
+        border-left: 5px solid #0d9488;
+        border-radius: 12px;
+        padding: 11px 14px;
+        margin-bottom: 14px;
+        font-size: 13px;
+        color: #0f172a;
+        line-height: 1.5;
+    }
+    .risk-badge {
+        display: inline-block; padding: 2px 9px; border-radius: 999px;
+        font-size: 11px; font-weight: 800; margin-left: 6px;
+    }
+    .risk-low { background: #dcfce7; color: #166534; border: 1px solid #86efac; }
+    .risk-med { background: #fef3c7; color: #92400e; border: 1px solid #fcd34d; }
+    .risk-high { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
+
+    /* ---- Live Obstacle Pills (View 2) ---- */
+    .obstacle-pill-grid {
+        display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 6px 0;
+    }
+    .obstacle-pill {
+        display: inline-flex; align-items: center; gap: 6px;
+        background: #ffffff;
+        border: 1px solid #cbd5e1;
+        border-left: 4px solid #f59e0b;
+        border-radius: 10px;
+        padding: 6px 12px;
+        font-size: 12.5px;
+        color: #1e293b;
+        box-shadow: 0 2px 8px rgba(15, 23, 42, 0.05);
+        transition: transform 0.2s ease;
+    }
+    .obstacle-pill.car { border-left-color: #ef4444; }
+    .obstacle-pill:hover { transform: translateY(-2px); }
+
+    /* ---- Hero Result Card (View 2 Final Outcome) ---- */
+    .hero-result-card {
+        background: radial-gradient(circle at 88% 0%, rgba(6, 182, 212, 0.10), transparent 45%),
+                    linear-gradient(180deg, #ffffff 0%, #f8fdff 100%);
+        border: 1px solid #bae6fd;
+        border-radius: 20px;
+        padding: 22px 26px;
+        margin: 14px 0 18px 0;
+        box-shadow: 0 4px 0 #bae6fd, 0 14px 30px rgba(14, 116, 144, 0.14);
+        position: relative;
+        overflow: hidden;
+    }
+    .hero-result-card::after {
+        content: "";
+        position: absolute; bottom: 0; left: 0; width: 100%; height: 4px;
+        background: linear-gradient(90deg, #0d9488, #22d3ee, #0d9488);
+        background-size: 200% 100%;
+        animation: gradientMove 3.5s linear infinite;
+    }
+    .hero-result-card.failed {
+        border-color: #fecaca;
+        box-shadow: 0 4px 0 #fecaca, 0 14px 30px rgba(220, 38, 38, 0.12);
+    }
+    .hero-result-card.failed::after {
+        background: linear-gradient(90deg, #dc2626, #fb7185, #dc2626);
+        background-size: 200% 100%;
+    }
+
+    /* ---- Workflow Cards & Tech Badges (Below the fold) ---- */
+    .workflow-card {
+        background: #ffffff;
+        border: 1px solid #dbeafe;
+        border-top: 3px solid #0891b2;
+        border-radius: 14px;
+        padding: 15px 16px;
+        box-shadow: 0 4px 12px rgba(14, 116, 144, 0.06);
+        transition: transform 0.22s ease, box-shadow 0.22s ease;
+        height: 100%;
+    }
+    .workflow-card:hover {
+        transform: translateY(-4px);
+        box-shadow: 0 12px 24px rgba(14, 116, 144, 0.15);
+    }
+    .workflow-card h5 {
+        margin: 0 0 6px 0; font-size: 14.5px; font-weight: 800; color: #0f172a !important;
+    }
+    .workflow-card p {
+        margin: 0; font-size: 12.8px; color: #475569 !important; line-height: 1.5;
+    }
+    .step-arrow {
+        display: flex; align-items: center; justify-content: center;
+        height: 100%; min-height: 70px;
+        color: #38bdf8; font-size: 20px; font-weight: 900;
+    }
+    .tech-badge {
+        display: inline-block;
+        background: linear-gradient(180deg, #ecfeff, #cffafe);
+        border: 1px solid #a5f3fc;
+        color: #0e7490;
+        font-size: 12px; font-weight: 700;
+        padding: 5px 13px;
+        border-radius: 999px;
+        margin: 4px 6px 4px 0;
+        transition: transform 0.18s ease;
+    }
+    .tech-badge:hover { transform: translateY(-2px); }
+
+    /* ---- Expander ---- */
+    .stApp [data-testid="stExpander"] {
+        background-color: #ffffff !important;
+        border: 1px solid #cbd5e1 !important;
+        border-radius: 14px !important;
+        box-shadow: 0 4px 12px rgba(15, 23, 42, 0.05);
+    }
+    .stApp [data-testid="stExpander"] summary,
+    .stApp [data-testid="stExpander"] summary * {
+        color: #0f172a !important;
+        font-weight: 700 !important;
     }
 </style>
 """, unsafe_allow_html=True)
 
 
 # ==========================================
-# 2. ENVIRONMENT & Q-TABLE
+# 4. ENVIRONMENT, HELPERS & Q-TABLE
 # ==========================================
 
 env = CampusDeliveryEnv(obstacle_mode=OBSTACLE_MODE)
 
-
-NOTE_STYLES = {   # background, border, text
+NOTE_STYLES = {
     "info":    ("#e0f2fe", "#0ea5e9", "#0c4a6e"),
     "success": ("#dcfce7", "#16a34a", "#14532d"),
     "warning": ("#fef3c7", "#f59e0b", "#78350f"),
@@ -231,38 +532,72 @@ NOTE_STYLES = {   # background, border, text
 
 
 def note(kind, text):
-    """Coloured message box (plain HTML, so it never depends on Streamlit internals)."""
+    """Coloured message box independent of Streamlit theme internals."""
     bg, border, fg = NOTE_STYLES[kind]
     st.markdown(
         f'<div style="background:{bg};border:1px solid {border};'
-        f'border-left:6px solid {border};border-radius:10px;padding:14px 18px;'
-        f'margin:8px 0;color:{fg};font-weight:600;line-height:1.5;">'
+        f'border-left:6px solid {border};border-radius:12px;padding:12px 16px;'
+        f'margin:6px 0 12px 0;color:{fg};font-weight:600;font-size:13.5px;line-height:1.5;">'
         f'{html.escape(text)}</div>',
-        unsafe_allow_html=True)
+        unsafe_allow_html=True
+    )
 
 
-def describe_obstacles(env):
-    """One line per obstacle: where it is and what it is doing (routes mode)."""
+def shortest_path_info(env, start, target, avoid_uncovered=False):
+    """BFS shortest hop count between two campus nodes (optionally avoiding uncovered roads)."""
+    queue = deque([(start, 0)])
+    visited = {start}
+    while queue:
+        node, dist = queue.popleft()
+        if node == target:
+            return dist
+        for nxt in env.graph[node]:
+            if nxt in visited:
+                continue
+            if avoid_uncovered and frozenset({node, nxt}) in env.uncovered_paths:
+                continue
+            visited.add(nxt)
+            queue.append((nxt, dist + 1))
+    return None
+
+
+def render_obstacle_pills_html(env):
+    """Render live obstacle locations & intents as interactive pills."""
     if env.obstacle_mode != "routes":
-        return ""
+        peds = ", ".join(env.node_names[n] for n in env.pedestrian_positions)
+        cars = ", ".join(env.node_names[n] for n in env.car_positions)
+        return (
+            f'<div class="obstacle-pill-grid">'
+            f'<div class="obstacle-pill">🚶 <b>Pedestrians:</b>&nbsp;{html.escape(peds)}</div>'
+            f'<div class="obstacle-pill car">🚗 <b>Cars:</b>&nbsp;{html.escape(cars)}</div>'
+            f'</div>'
+        )
+
     intents = env.obstacle_intents()
-    lines = []
-    for kind, label, icon in (("ped", "P", "🚶"), ("car", "C", "🚗")):
+    pills = []
+    for kind, label, icon, css_cls in (
+        ("ped", "P", "🚶", ""),
+        ("car", "C", "🚗", "car"),
+    ):
         for i, it in enumerate(intents[kind]):
-            here = env.node_names[it["node"]]
+            here = html.escape(env.node_names[it["node"]])
             if it["goal"] is not None:
-                what = f"heading to {env.node_names[it['goal']]}"
+                what = f"➜ {html.escape(env.node_names[it['goal']])}"
             elif it["waiting"]:
                 what = "waiting"
             else:
-                what = "choosing next stop"
-            lines.append(f"{icon} **{label}{i + 1}** at {here}: {what}")
-    return "  \n".join(lines)
+                what = "picking next stop"
+            pills.append(
+                f'<div class="obstacle-pill {css_cls}">'
+                f'{icon} <b>{label}{i + 1}</b>&nbsp;at {here}&nbsp;'
+                f'<span style="color:#64748b;">({what})</span></div>'
+            )
+    return f'<div class="obstacle-pill-grid">{"".join(pills)}</div>'
 
 
 @st.cache_resource
 def load_q_table(path=Q_TABLE_PATH):
-    """Load the trained Q-table if it exists and has the correct shape."""
+    """Load the trained 5D Q-table if it exists and has the expected shape."""
     if not os.path.exists(path):
         return None
 
@@ -275,12 +610,11 @@ def load_q_table(path=Q_TABLE_PATH):
             f"but received {table.shape}."
         )
         return None
-
     return table
 
 
 # ==========================================
-# 3. 2D CAMPUS MAP RENDERER
+# 5. 2D CAMPUS MAP RENDERER
 # ==========================================
 
 def _round_box(x, y, w, h, r, fc, ec, lw=1.2):
@@ -332,7 +666,6 @@ def icon_car(scale=1.0):
 
 
 def place_icon(ax, da, x, y, dx=0, dy=0, zorder=10):
-    """Put an icon at data point (x, y), shifted by (dx, dy) points."""
     ab = AnnotationBbox(da, (x, y), xybox=(dx, dy), xycoords="data",
                         boxcoords="offset points", frameon=False,
                         box_alignment=(0.5, 0.5), pad=0)
@@ -341,36 +674,17 @@ def place_icon(ax, da, x, y, dx=0, dy=0, zorder=10):
 
 
 def draw_campus_background(ax):
-    """Draw the grass, landscaping and trees behind the campus map."""
-    ax.add_patch(
-        Rectangle(
-            (-28, 2), 130, 101,
-            facecolor="#b8d99b",
-            edgecolor="none",
-            zorder=0
-        )
-    )
+    ax.add_patch(Rectangle((-28, 2), 130, 101, facecolor="#b8d99b", edgecolor="none", zorder=0))
 
     green_spaces = [
-        (5, 88, 13, 7),
-        (39, 82, 10, 5),
-        (47, 49, 8, 6),
-        (70, 12, 12, 6),
-        (4, 5, 9, 5),
-        (88, 72, 9, 5)
+        (5, 88, 13, 7), (39, 82, 10, 5), (47, 49, 8, 6),
+        (70, 12, 12, 6), (4, 5, 9, 5), (88, 72, 9, 5)
     ]
-
     for x, y, w, h in green_spaces:
-        ax.add_patch(
-            FancyBboxPatch(
-                (x, y), w, h,
-                boxstyle="round,pad=0.3,rounding_size=2",
-                facecolor="#a5cf85",
-                edgecolor="none",
-                alpha=0.8,
-                zorder=0.3
-            )
-        )
+        ax.add_patch(FancyBboxPatch(
+            (x, y), w, h, boxstyle="round,pad=0.3,rounding_size=2",
+            facecolor="#a5cf85", edgecolor="none", alpha=0.8, zorder=0.3
+        ))
 
     tree_positions = [
         (4, 83), (20, 65), (25, 57), (47, 75),
@@ -378,133 +692,61 @@ def draw_campus_background(ax):
         (16, 15), (35, 10), (68, 10), (76, 18),
         (94, 17), (96, 56), (72, 58), (51, 57)
     ]
-
     for x, y in tree_positions:
-        ax.add_patch(
-            Circle(
-                (x, y), 1.5,
-                facecolor="#388e3c",
-                edgecolor="#246b2b",
-                linewidth=0.7,
-                zorder=0.9
-            )
-        )
-        ax.add_patch(
-            Circle(
-                (x - 0.4, y + 0.4), 0.5,
-                facecolor="#70ad52",
-                edgecolor="none",
-                zorder=1
-            )
-        )
+        ax.add_patch(Circle((x, y), 1.5, facecolor="#388e3c", edgecolor="#246b2b", linewidth=0.7, zorder=0.9))
+        ax.add_patch(Circle((x - 0.4, y + 0.4), 0.5, facecolor="#70ad52", edgecolor="none", zorder=1))
 
 
 def icon_waypoint(node_id, node_name=""):
-    """Draw small, box-free icons for campus locations."""
     name = node_name.lower()
     if "roof top" in name or "rooftop" in name:
         return None
 
     da = DrawingArea(30, 26, 0, 0)
-
     canteens = {0, 4, 22, 30}
     pools = {20}
     carparks = {12, 25, 29, 35}
     bus_stops = {24, 32}
 
-    if node_id in canteens or any(
-        word in name for word in ("canteen", "cafe", "yum yum", "red bricks")
-    ):
-        da.add_artist(Rectangle(
-            (5, 5), 20, 10, fc="#d97706", ec="#92400e", lw=0.8
-        ))
-        da.add_artist(Polygon(
-            [(3, 15), (27, 15), (24, 23), (6, 23)],
-            closed=True, fc="#fb923c", ec="#9a3412", lw=0.8
-        ))
+    if node_id in canteens or any(w in name for w in ("canteen", "cafe", "yum yum", "red bricks")):
+        da.add_artist(Rectangle((5, 5), 20, 10, fc="#d97706", ec="#92400e", lw=0.8))
+        da.add_artist(Polygon([(3, 15), (27, 15), (24, 23), (6, 23)], closed=True, fc="#fb923c", ec="#9a3412", lw=0.8))
         for x in (8, 14, 20):
-            da.add_artist(Rectangle(
-                (x, 15), 3, 7, fc="#fff7ed", ec="none"
-            ))
+            da.add_artist(Rectangle((x, 15), 3, 7, fc="#fff7ed", ec="none"))
 
     elif node_id in pools or "swimming pool" in name:
-        da.add_artist(FancyBboxPatch(
-            (3, 5), 24, 17,
-            boxstyle="round,pad=0.2,rounding_size=3",
-            fc="#38bdf8", ec="#0369a1", lw=1
-        ))
+        da.add_artist(FancyBboxPatch((3, 5), 24, 17, boxstyle="round,pad=0.2,rounding_size=3", fc="#38bdf8", ec="#0369a1", lw=1))
         for y in (10, 15):
-            da.add_artist(Line2D(
-                [7, 12, 17, 22], [y, y + 2, y, y + 2],
-                color="white", linewidth=1
-            ))
+            da.add_artist(Line2D([7, 12, 17, 22], [y, y + 2, y, y + 2], color="white", linewidth=1))
 
     elif node_id in carparks or "car park" in name or "carpark" in name:
-        da.add_artist(FancyBboxPatch(
-            (5, 4), 20, 21,
-            boxstyle="round,pad=0.2,rounding_size=2",
-            fc="#2563eb", ec="#1e40af", lw=0.8
-        ))
-        da.add_artist(Text(
-            15, 14, "P", ha="center", va="center",
-            fontsize=17, fontweight="bold", color="white"
-        ))
+        da.add_artist(FancyBboxPatch((5, 4), 20, 21, boxstyle="round,pad=0.2,rounding_size=2", fc="#2563eb", ec="#1e40af", lw=0.8))
+        da.add_artist(Text(15, 14, "P", ha="center", va="center", fontsize=17, fontweight="bold", color="white"))
 
     elif node_id in bus_stops or "bus stop" in name:
-        da.add_artist(Rectangle(
-            (14, 3), 2, 15, fc="#475569", ec="none"
-        ))
-        da.add_artist(Rectangle(
-            (4, 16), 22, 9, fc="#0f766e", ec="#134e4a", lw=0.8
-        ))
-        da.add_artist(Text(
-            15, 20, "BUS", ha="center", va="center",
-            fontsize=6, fontweight="bold", color="white"
-        ))
+        da.add_artist(Rectangle((14, 3), 2, 15, fc="#475569", ec="none"))
+        da.add_artist(Rectangle((4, 16), 22, 9, fc="#0f766e", ec="#134e4a", lw=0.8))
+        da.add_artist(Text(15, 20, "BUS", ha="center", va="center", fontsize=6, fontweight="bold", color="white"))
 
     elif "basketball" in name:
-        da.add_artist(Rectangle(
-            (3, 5), 24, 17, fc="#e9a15b", ec="#92400e", lw=1
-        ))
-        da.add_artist(Line2D(
-            [15, 15], [5, 22], color="white", linewidth=0.8
-        ))
-        da.add_artist(Circle(
-            (15, 13.5), 3.5, fc="none", ec="white", lw=0.8
-        ))
+        da.add_artist(Rectangle((3, 5), 24, 17, fc="#e9a15b", ec="#92400e", lw=1))
+        da.add_artist(Line2D([15, 15], [5, 22], color="white", linewidth=0.8))
+        da.add_artist(Circle((15, 13.5), 3.5, fc="none", ec="white", lw=0.8))
 
     elif "library" in name:
-        for x, color in (
-            (5, "#2563eb"), (13, "#16a34a"), (21, "#f59e0b")
-        ):
-            da.add_artist(Rectangle(
-                (x, 5), 5 if x == 21 else 7, 18,
-                fc=color, ec="#334155", lw=0.8
-            ))
+        for x, color in ((5, "#2563eb"), (13, "#16a34a"), (21, "#f59e0b")):
+            da.add_artist(Rectangle((x, 5), 5 if x == 21 else 7, 18, fc=color, ec="#334155", lw=0.8))
 
     elif "hostel" in name:
-        da.add_artist(Rectangle(
-            (4, 7), 23, 3, fc="#64748b", ec="#334155", lw=0.8
-        ))
-        da.add_artist(Rectangle(
-            (5, 10), 21, 8, fc="#38bdf8", ec="#0369a1", lw=0.8
-        ))
-        da.add_artist(Rectangle(
-            (6, 14), 7, 5, fc="#f8fafc", ec="#64748b", lw=0.7
-        ))
+        da.add_artist(Rectangle((4, 7), 23, 3, fc="#64748b", ec="#334155", lw=0.8))
+        da.add_artist(Rectangle((5, 10), 21, 8, fc="#38bdf8", ec="#0369a1", lw=0.8))
+        da.add_artist(Rectangle((6, 14), 7, 5, fc="#f8fafc", ec="#64748b", lw=0.7))
 
     else:
-        da.add_artist(Rectangle(
-            (5, 5), 20, 15, fc="#c4b49a", ec="#78664d", lw=0.9
-        ))
-        da.add_artist(Polygon(
-            [(3, 20), (15, 25), (27, 20)],
-            closed=True, fc="#8b7355", ec="#78664d", lw=0.8
-        ))
+        da.add_artist(Rectangle((5, 5), 20, 15, fc="#c4b49a", ec="#78664d", lw=0.9))
+        da.add_artist(Polygon([(3, 20), (15, 25), (27, 20)], closed=True, fc="#8b7355", ec="#78664d", lw=0.8))
         for x in (9, 18):
-            da.add_artist(Rectangle(
-                (x, 9), 5, 7, fc="#e0f2fe", ec="#64748b", lw=0.6
-            ))
+            da.add_artist(Rectangle((x, 9), 5, 7, fc="#e0f2fe", ec="#64748b", lw=0.6))
 
     return da
 
@@ -519,10 +761,9 @@ def render_campus_map(env, visited_nodes, current_node, target_node,
     fig, ax = plt.subplots(figsize=(13, 8.2), facecolor=bg_color)
     ax.set_facecolor(bg_color)
 
-    # 3.0 Campus background
     draw_campus_background(ax)
 
-    # 3.1 Road connections
+    # Road connections
     drawn_edges = set()
     for u, neighbors in env.graph.items():
         for v in neighbors:
@@ -533,20 +774,17 @@ def render_campus_map(env, visited_nodes, current_node, target_node,
             x1, y1 = env.node_coords[u]
             x2, y2 = env.node_coords[v]
             if edge in env.uncovered_paths:
-                ax.plot([x1, x2], [y1, y2], color="#eab308", linestyle="--",
-                        linewidth=2.6, alpha=0.9, zorder=1)
+                ax.plot([x1, x2], [y1, y2], color="#eab308", linestyle="--", linewidth=2.6, alpha=0.9, zorder=1)
             else:
-                ax.plot([x1, x2], [y1, y2], color="#64748b", linestyle="-",
-                        linewidth=2.2, alpha=0.8, zorder=1)
+                ax.plot([x1, x2], [y1, y2], color="#64748b", linestyle="-", linewidth=2.2, alpha=0.8, zorder=1)
 
-    # 3.2 Robot's travelled route
+    # Robot's travelled route
     for i in range(len(visited_nodes) - 1):
         x1, y1 = env.node_coords[visited_nodes[i]]
         x2, y2 = env.node_coords[visited_nodes[i + 1]]
-        ax.plot([x1, x2], [y1, y2], color="#06b6d4", linewidth=5,
-                alpha=0.95, zorder=3)
+        ax.plot([x1, x2], [y1, y2], color="#06b6d4", linewidth=5, alpha=0.95, zorder=3)
 
-    # 3.3 Waypoint icons and labels
+    # Waypoint icons and labels
     for node_id, (x, y) in env.node_coords.items():
         name = env.node_names[node_id]
         name_lower = name.lower()
@@ -561,16 +799,10 @@ def render_campus_map(env, visited_nodes, current_node, target_node,
             label_color = "#334155"
 
         marker = icon_waypoint(node_id, name)
-
         label_offsets = {
-            0: (-30, -28),
-            1: (12, 18),
-            2: (-30, 20),
-            3: (12, -28),
-            4: (-30, 18),
-            5: (12, 20),
+            0: (-30, -28), 1: (12, 18), 2: (-30, 20),
+            3: (12, -28), 4: (-30, 18), 5: (12, 20),
         }
-
         dx, dy = label_offsets.get(node_id, (12, 18))
 
         if "bus stop" in name_lower:
@@ -579,27 +811,19 @@ def render_campus_map(env, visited_nodes, current_node, target_node,
             continue
 
         if marker is None:
-            label_dx = 12
-            label_dy = 18
+            label_dx, label_dy = 12, 18
         else:
             place_icon(ax, marker, x, y, dx, dy, zorder=7)
             label_dx = dx + 13 if dx < 0 else dx + 17
             label_dy = dy
 
         ax.annotate(
-            name,
-            (x, y),
-            xytext=(label_dx, label_dy),
-            textcoords="offset points",
-            ha="left",
-            va="center",
-            fontsize=6.5,
-            fontweight="bold",
-            color=label_color,
-            zorder=8
+            name, (x, y), xytext=(label_dx, label_dy), textcoords="offset points",
+            ha="left", va="center", fontsize=6.5, fontweight="bold",
+            color=label_color, zorder=8
         )
 
-    # 3.4 Moving obstacles
+    # Moving obstacles
     if show_obstacles:
         for kind, positions, make_icon, base_dx, base_dy, arrow_color, tag in (
             ("ped", env.pedestrian_positions, icon_person, -15, -12, "#a16207", "P"),
@@ -608,25 +832,23 @@ def render_campus_map(env, visited_nodes, current_node, target_node,
             for i, node in enumerate(positions):
                 x, y = env.node_coords[node]
                 dx, dy = base_dx + 11 * i, base_dy
-                if prev_positions and prev_positions[kind][i] != node:
+                if prev_positions and i < len(prev_positions[kind]) and prev_positions[kind][i] != node:
                     px, py = env.node_coords[prev_positions[kind][i]]
                     ax.annotate("", xy=(x, y), xytext=(px, py),
-                                arrowprops=dict(arrowstyle="-|>", color=arrow_color,
-                                                lw=2.2, shrinkA=7, shrinkB=9),
+                                arrowprops=dict(arrowstyle="-|>", color=arrow_color, lw=2.2, shrinkA=7, shrinkB=9),
                                 zorder=8)
                 place_icon(ax, make_icon(), x, y, dx, dy, zorder=9)
                 ax.annotate(f"{tag}{i + 1}", (x, y), xytext=(dx, dy - 22),
                             textcoords="offset points", ha="center", va="center",
                             fontsize=7, fontweight="bold", color="#0f172a",
-                            bbox=dict(boxstyle="round,pad=0.15", fc="#ffffff",
-                                      ec="none", alpha=0.85),
+                            bbox=dict(boxstyle="round,pad=0.15", fc="#ffffff", ec="none", alpha=0.85),
                             zorder=10)
 
-    # 3.5 Robot icon on its current node
+    # Robot icon
     rx, ry = env.node_coords[current_node]
     place_icon(ax, icon_robot(), rx, ry, 0, 9, zorder=12)
 
-    # 3.6 HUD
+    # HUD overlay
     weather_banner = "RAINY" if is_rainy else "SUNNY"
     time_banner = ["DAY", "EVENING", "NIGHT"][env.current_time_of_day]
     obstacle_text = ""
@@ -653,7 +875,7 @@ def render_campus_map(env, visited_nodes, current_node, target_node,
             bbox=dict(boxstyle="round,pad=0.6", facecolor="#ffffff",
                       edgecolor="#06b6d4", linewidth=2, alpha=0.95))
 
-    # 3.7 Icon key
+    # Icon key
     ax.add_patch(FancyBboxPatch((-27.5, 50), 21, 22, boxstyle="round,pad=0.4,rounding_size=1.5",
                                 fc="#ffffff", ec="#cbd5e1", lw=1.2, alpha=0.95, zorder=11))
     ax.text(-26.5, 70.2, "ICON KEY", fontsize=8, fontweight="bold",
@@ -662,18 +884,16 @@ def render_campus_map(env, visited_nodes, current_node, target_node,
                                     (57.5, icon_person, "Pedestrian"),
                                     (52.5, icon_car, "Car")):
         place_icon(ax, make_icon(0.55), -23.5, row_y, 0, 0, zorder=12)
-        ax.text(-19, row_y, label, fontsize=8, color="#1e293b",
-                va="center", ha="left", zorder=12)
+        ax.text(-19, row_y, label, fontsize=8, color="#1e293b", va="center", ha="left", zorder=12)
 
-    # 3.8 Legend
+    # Legend
     legend_elements = [
         patches.Patch(facecolor="#10b981", edgecolor="#047857", label="Destination"),
         patches.Patch(facecolor="#f97316", edgecolor="#c2410c", label="Restaurant"),
         Line2D([0], [0], color="#06b6d4", lw=4, label="Robot Travelled Path"),
         Line2D([0], [0], color="#64748b", lw=2, label="Covered Walkway"),
         Line2D([0], [0], color="#eab308", lw=2, ls="--", label="Uncovered Path"),
-        Line2D([0], [0], color="#b91c1c", lw=2, marker=">", markersize=6,
-               label="Obstacle's last move"),
+        Line2D([0], [0], color="#b91c1c", lw=2, marker=">", markersize=6, label="Obstacle's last move"),
     ]
     ax.legend(handles=legend_elements, loc="lower right", facecolor="#ffffff",
               edgecolor="#cbd5e1", labelcolor="#1e293b", fontsize=8)
@@ -686,7 +906,7 @@ def render_campus_map(env, visited_nodes, current_node, target_node,
 
 
 # ==========================================
-# 4. ACTION POLICY
+# 6. ACTION POLICY & NAVIGATION CALLBACKS
 # ==========================================
 
 def choose_action(env, state, model_name, q_table, previous_node):
@@ -706,16 +926,15 @@ def choose_action(env, state, model_name, q_table, previous_node):
     return random.choice(valid)
 
 
-# ==========================================
-# 5. NAVIGATION CALLBACKS
-# ==========================================
-
 def go_to_order():
     st.session_state.page = "order"
+    st.session_state.sim_finished = False
+    st.session_state.sim_data = None
 
 
-def go_to_tracking():
-    st.session_state.page = "tracking"
+def replay_order():
+    st.session_state.sim_finished = False
+    st.session_state.sim_data = None
 
 
 if "page" not in st.session_state:
@@ -723,29 +942,52 @@ if "page" not in st.session_state:
 
 
 # ==========================================
-# VIEW 1: CUSTOMER ORDER SELECTION (SINGLE-SCREEN CARD LAYOUT)
+# 7. SMART STICKY PREMIUM HEADER (SHARED)
+# ==========================================
+
+mode_badge_text = (
+    "ORDER DISPATCH CONSOLE" if st.session_state.page == "order"
+    else "LIVE TELEMETRY TRACKING"
+)
+
+st.markdown(f"""
+<div class="campus-header">
+    <div class="header-left">
+        <div class="header-logo">🤖</div>
+        <div>
+            <div class="header-title">TAR UMT Autonomous Campus Delivery</div>
+            <div class="header-subtitle">Reinforcement Learning Routing • 36-Node Smart Campus • Dynamic Obstacle Avoidance</div>
+        </div>
+    </div>
+    <div class="header-pill">
+        <span class="live-dot"></span>
+        <span>{mode_badge_text}</span>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+
+# ==========================================
+# VIEW 1: CUSTOMER ORDER SELECTION
 # ==========================================
 
 if st.session_state.page == "order":
 
-    # Compact Header
-    st.markdown("""
-        <div style="margin-bottom: 0.8rem;">
-            <h2 style="margin: 0; font-size: 1.75rem; font-weight: 800; color: #0f172a;">
-                🍔 TAR UMT Autonomous Campus Food Delivery
-            </h2>
-            <p style="margin: 4px 0 0 0; font-size: 0.95rem; color: #475569;">
-                Configure your order, RL model, and campus conditions below — preview updates live on the right.
-            </p>
-        </div>
-    """, unsafe_allow_html=True)
-
     col_form, col_map = st.columns([1.05, 1.35], gap="large")
 
-    # ---- LEFT CARD: ALL 4 STEPS IN ONE UNIFIED BOX (NO SCROLLING) ----
+    # ---- LEFT BENTO CARD: ALL 6 CONTROLS IN ONE UNIFIED BOX ----
     with col_form:
         with st.container(border=True):
-            st.markdown("#### 📋 Order & Simulation Setup")
+            st.markdown('<div class="bento-marker"></div>', unsafe_allow_html=True)
+            st.markdown("""
+                <div class="section-header">
+                    <div class="section-header-left">
+                        <span class="dot"></span>
+                        <span class="label">Order & Simulation Setup</span>
+                    </div>
+                    <span class="section-chip">All-in-One Control</span>
+                </div>
+            """, unsafe_allow_html=True)
 
             target_options = {env.node_names[n]: n for n in env.target_destinations}
             start_options = {env.node_names[n]: n for n in env.start_locations}
@@ -753,33 +995,27 @@ if st.session_state.page == "order":
             # Row 1: Restaurant & Destination
             r1_c1, r1_c2 = st.columns(2)
             with r1_c1:
-                selected_start_name = st.selectbox(
-                    "🏪 1. Restaurant", list(start_options.keys())
-                )
+                selected_start_name = st.selectbox("🏪 1. Restaurant", list(start_options.keys()))
                 chosen_start = start_options[selected_start_name]
             with r1_c2:
-                selected_target_name = st.selectbox(
-                    "🎯 2. Destination", list(target_options.keys())
-                )
+                selected_target_name = st.selectbox("🎯 2. Destination", list(target_options.keys()))
                 chosen_target = target_options[selected_target_name]
 
             # Row 2: Food Item & RL Model
             r2_c1, r2_c2 = st.columns(2)
             with r2_c1:
-                chosen_food = st.selectbox(
-                    "🍱 3. Food Item", env.food_menus[chosen_start]
-                )
+                chosen_food = st.selectbox("🍱 3. Food Item", env.food_menus[chosen_start])
             with r2_c2:
                 selected_model = st.selectbox(
-                    "🤖 4. RL Model",
-                    ["Q-Learning", "SARSA", "DQN", "A2C", "REINFORCE"]
+                    "🤖 4. RL Navigation Model",
+                    ["Q-Learning", "SARSA", "A2C", "REINFORCE", "DQN"]
                 )
 
             # Row 3: Weather & Time of Day
             r3_c1, r3_c2 = st.columns(2)
             with r3_c1:
                 weather_mode = st.selectbox(
-                    "🌦️ 5. Weather",
+                    "🌦️ 5. Weather Condition",
                     ["🎲 Auto Random", "☀️ Force Sunny", "🌧️ Force Rainy"]
                 )
             with r3_c2:
@@ -788,31 +1024,51 @@ if st.session_state.page == "order":
                     ["🎲 Auto Random", "☀️ Day", "🌆 Evening", "🌙 Night"]
                 )
 
-            # Compact Live Order Summary Strip
-            st.markdown(
-                f"""
-                <div style="
-                    background: #f0f9ff;
-                    border: 1px solid #bae6fd;
-                    border-left: 4px solid #06b6d4;
-                    border-radius: 10px;
-                    padding: 10px 14px;
-                    margin: 10px 0 14px 0;
-                    font-size: 0.88rem;
-                    line-height: 1.55;
-                    color: #0f172a;
-                ">
-                    <strong>🧾 Order Summary</strong><br>
-                    <b>Route:</b> {html.escape(selected_start_name)} ➜ {html.escape(selected_target_name)}
-                    &nbsp;|&nbsp; <b>Item:</b> {html.escape(chosen_food)}<br>
-                    <b>Agent:</b> {html.escape(selected_model)}
-                    &nbsp;|&nbsp; <b>Conditions:</b> {html.escape(weather_mode)} · {html.escape(time_mode)}
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
+            # Live Pre-Dispatch Route & Condition Analytics (Ready for SL ETA integration!)
+            is_preview_rain = (weather_mode == "🌧️ Force Rainy")
+            min_hops = shortest_path_info(env, chosen_start, chosen_target, avoid_uncovered=False)
+            sheltered_hops = shortest_path_info(env, chosen_start, chosen_target, avoid_uncovered=True)
+            est_hops = (sheltered_hops if (is_preview_rain and sheltered_hops) else min_hops) or 0
 
-            # Launch Button inside the same unified box
+            # Simple congestion heuristic badge (can be replaced directly by your SL classifier!)
+            if time_mode == "🌆 Evening" or is_preview_rain:
+                risk_label, risk_cls = "Moderate-High Traffic", "risk-med"
+                est_steps_str = f"~{est_hops + 2} – {est_hops + 5} steps"
+            elif time_mode == "🌙 Night":
+                risk_label, risk_cls = "Low Traffic • Dim Light", "risk-low"
+                est_steps_str = f"~{est_hops + 1} – {est_hops + 3} steps"
+            else:
+                risk_label, risk_cls = "Normal Campus Flow", "risk-low"
+                est_steps_str = f"~{est_hops + 1} – {est_hops + 4} steps"
+
+            # Hoverable Order Snapshot Grid
+            st.markdown(f"""
+                <div class="snapshot-grid">
+                    <div class="snapshot-item">
+                        <div class="snap-label">Selected Route</div>
+                        <div class="snap-val">{html.escape(selected_start_name)} ➜ {html.escape(selected_target_name)}</div>
+                    </div>
+                    <div class="snapshot-item">
+                        <div class="snap-label">Order & Agent</div>
+                        <div class="snap-val">{html.escape(chosen_food)} · {html.escape(selected_model)}</div>
+                    </div>
+                    <div class="snapshot-item">
+                        <div class="snap-label">Min Graph Distance</div>
+                        <div class="snap-val">{est_hops} hops {"(Sheltered)" if is_preview_rain else "(Direct)"}</div>
+                    </div>
+                    <div class="snapshot-item">
+                        <div class="snap-label">Pre-Dispatch Estimate</div>
+                        <div class="snap-val">{est_steps_str}</div>
+                    </div>
+                </div>
+                <div class="advisor-strip">
+                    <b>📡 Dispatch Advisor:</b>
+                    {"Rainy mode active — robot prioritises covered walkways (-40 open-air penalty)." if is_preview_rain else "Standard routing active — optimising shortest safe path across campus."}
+                    <span class="risk-badge {risk_cls}">{risk_label}</span>
+                </div>
+            """, unsafe_allow_html=True)
+
+            # 3D Launch Button
             if st.button("🚀 Confirm Order & Launch Live Tracking", use_container_width=True):
                 if weather_mode == "☀️ Force Sunny":
                     weather_value = 0
@@ -827,36 +1083,36 @@ if st.session_state.page == "order":
                     "food": chosen_food,
                     "weather": weather_value,
                 }
-
-                time_mapping = {
-                    "☀️ Day": 0,
-                    "🌆 Evening": 1,
-                    "🌙 Night": 2,
-                }
+                time_mapping = {"☀️ Day": 0, "🌆 Evening": 1, "🌙 Night": 2}
                 if time_mode in time_mapping:
                     order_config["time_of_day"] = time_mapping[time_mode]
 
                 st.session_state.order_config = order_config
                 st.session_state.selected_model = selected_model
+                st.session_state.sim_finished = False
+                st.session_state.sim_data = None
                 st.session_state.page = "tracking"
                 st.rerun()
 
-    # ---- RIGHT CARD: CAMPUS MAP PREVIEW ----
+    # ---- RIGHT BENTO CARD: CAMPUS MAP PREVIEW ----
     with col_map:
         with st.container(border=True):
-            st.markdown("#### 🗺️ Campus Map Preview")
+            st.markdown('<div class="bento-marker"></div>', unsafe_allow_html=True)
+            st.markdown("""
+                <div class="section-header">
+                    <div class="section-header-left">
+                        <span class="dot"></span>
+                        <span class="label">Live Campus Map Preview</span>
+                    </div>
+                    <span class="section-chip">36 Nodes • 2D Topology</span>
+                </div>
+            """, unsafe_allow_html=True)
 
             preview_env = CampusDeliveryEnv(obstacle_mode=OBSTACLE_MODE)
             preview_env.current_location = chosen_start
             preview_env.target_destination = chosen_target
             preview_env.current_weather = 1 if weather_mode == "🌧️ Force Rainy" else 0
-
-            preview_time_map = {
-                "☀️ Day": 0,
-                "🌆 Evening": 1,
-                "🌙 Night": 2,
-            }
-            # Default preview to Day (0) when Auto Random is selected to avoid flicker
+            preview_time_map = {"☀️ Day": 0, "🌆 Evening": 1, "🌙 Night": 2}
             preview_env.current_time_of_day = preview_time_map.get(time_mode, 0)
             preview_env.selected_food = chosen_food
 
@@ -867,6 +1123,48 @@ if st.session_state.page == "order":
             )
             st.pyplot(preview_fig, use_container_width=True)
             plt.close(preview_fig)
+
+    # ---- BELOW THE FOLD: SYSTEM WORKFLOW & TECH BADGES ----
+    st.markdown("<div style='height: 16px;'></div>", unsafe_allow_html=True)
+    st.markdown("""
+        <div class="section-header">
+            <div class="section-header-left">
+                <span class="dot"></span>
+                <span class="label">How the Autonomous Delivery System Works</span>
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
+
+    workflow_steps = [
+        ("1. Order Configuration", "Select restaurant, menu item, destination, weather, and time-of-day conditions."),
+        ("2. 5D State Sensing", "Agent observes Location, Target, Weather, Time of Day, and real-time Traffic proximity."),
+        ("3. Safe RL Navigation", "Policy balances shortest path, covered walkways in rain, WAIT pull-overs, and retreats."),
+        ("4. Telemetry & Export", "Track step-by-step scores, obstacle movements, and export full delivery logs to CSV."),
+    ]
+    w_cols = st.columns([1, 0.14, 1, 0.14, 1, 0.14, 1])
+    w_idx = 0
+    for i, col in enumerate(w_cols):
+        with col:
+            if i % 2 == 1:
+                st.markdown('<div class="step-arrow">➜</div>', unsafe_allow_html=True)
+            else:
+                w_title, w_desc = workflow_steps[w_idx]
+                w_idx += 1
+                st.markdown(f"""
+                    <div class="workflow-card">
+                        <h5>{w_title}</h5>
+                        <p>{w_desc}</p>
+                    </div>
+                """, unsafe_allow_html=True)
+
+    st.markdown("<div style='height: 14px;'></div>", unsafe_allow_html=True)
+    tech_stack = [
+        "Python", "Gymnasium (Custom MDP)", "Reinforcement Learning",
+        "Q-Learning", "SARSA", "Actor-Critic (A2C)", "REINFORCE",
+        "Streamlit", "NumPy", "Matplotlib"
+    ]
+    badges_html = "".join(f'<span class="tech-badge">{t}</span>' for t in tech_stack)
+    st.markdown(f"<div>{badges_html}</div>", unsafe_allow_html=True)
 
 
 # ==========================================
@@ -883,154 +1181,261 @@ elif st.session_state.page == "tracking":
     selected_model = st.session_state.get("selected_model", "Q-Learning")
     q_table = load_q_table()
 
-    try:
-        state, info = env.reset(options=cfg)
-    except ValueError as err:
-        note("error", f"Invalid order: {err}")
-        st.button("🏠 Back to Order Selection", on_click=go_to_order)
-        st.stop()
-
-    top_col1, top_col2 = st.columns([4, 1])
+    # Action bar
+    top_col1, top_col2, top_col3 = st.columns([3.4, 1, 1])
     with top_col1:
-        st.subheader(
-            f"📡 Live Robot Tracking: {env.node_names[env.current_location]} "
-            f"➜ {env.node_names[env.target_destination]}")
+        st.markdown(f"""
+            <div class="section-header" style="margin-top:6px;">
+                <div class="section-header-left">
+                    <span class="dot"></span>
+                    <span class="label" style="font-size:19px;">
+                        📡 Live Mission: {html.escape(env.node_names[cfg['start']])} ➜ {html.escape(env.node_names[cfg['target']])}
+                    </span>
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
     with top_col2:
-        st.button("🔄 New Order", on_click=go_to_order)
+        st.button("🔁 Replay", on_click=replay_order, use_container_width=True)
+    with top_col3:
+        st.button("🔄 New Order", on_click=go_to_order, use_container_width=True)
 
     if selected_model == "Q-Learning" and q_table is not None:
-        note("info", "🤖 Model: Q-Learning (trained Q-table loaded from q_table.npy)")
+        note("info", "🤖 Active Policy: Q-Learning (trained 5D Q-table loaded from q_table.npy)")
     elif selected_model == "Q-Learning":
-        note("warning", "🤖 q_table.npy not found next to app.py, so a random valid-action "
-                        "policy is used. Run the training script first.")
+        note("warning", "🤖 q_table.npy not found next to app.py — falling back to random valid-action policy.")
     else:
-        note("warning", f"🤖 {selected_model} is not integrated yet, so a random "
-                        "valid-action policy is used.")
+        note("warning", f"🤖 {selected_model} table is not linked yet — using random valid-action policy for preview.")
 
     hud_placeholder = st.empty()
-    map_placeholder = st.empty()
-    intent_placeholder = st.empty()
+    map_card = st.container(border=True)
+    with map_card:
+        st.markdown('<div class="bento-marker"></div>', unsafe_allow_html=True)
+        map_placeholder = st.empty()
+        intent_placeholder = st.empty()
+
     with st.expander("📜 Environment Simulation Log", expanded=True):
         log_placeholder = st.empty()
 
-    total_score = 0
-    step_num = 0
-    terminated = truncated = False
-    previous_node = None
-    visited_nodes = [env.current_location]
-    logs = []
-
-    fig = render_campus_map(env, visited_nodes, env.current_location,
-                            env.target_destination, total_score, step_num,
-                            "Order Dispatched")
-    map_placeholder.pyplot(fig)
-    plt.close(fig)
-    intent_placeholder.markdown(describe_obstacles(env))
-    time.sleep(0.8)
-
-    reward = 0
-    while not (terminated or truncated):
-        step_num += 1
-
-        action = choose_action(env, state, selected_model, q_table, previous_node)
-        previous_location = env.current_location
-        prev_positions = {"ped": list(env.pedestrian_positions),
-                          "car": list(env.car_positions)}
-        state, reward, terminated, truncated, info = env.step(action)
-        total_score += reward
-
-        outcome = info.get("outcome")
-        moved = env.current_location != previous_location
-        if moved:
-            previous_node = previous_location
-            visited_nodes.append(env.current_location)
-
-        here = env.node_names[env.current_location]
-        if outcome == "wait":
-            status_msg, log_line = "Robot waiting", "WAIT"
-        elif outcome == "retreat":
-            blocked = env.node_names[info["blocked_node"]]
-            status_msg = f"Blocked at {blocked}, holding position"
-            log_line = f"RETREAT (blocked at {blocked})"
-        elif outcome == "invalid":
-            status_msg, log_line = "Invalid action", "INVALID action"
-        elif outcome == "ped_collision":
-            status_msg, log_line = f"Pedestrian collision at {here}", f"MOVE to {here} -> PEDESTRIAN COLLISION"
-        elif outcome == "car_collision":
-            status_msg, log_line = f"Car collision at {here}", f"MOVE to {here} -> CAR COLLISION"
-        elif outcome == "goal":
-            status_msg, log_line = f"Delivered at {here}", f"MOVE to {here} -> DELIVERED"
-        else:
-            status_msg, log_line = f"Moved to {here}", f"MOVE to {here}"
-
-        logs.append(f"Step {step_num}: {log_line} | Reward: {reward:+} pts")
-
+    # Helper to draw the 5 Hoverable Metric Cards
+    def render_hud(total_score, last_reward, step_num, weather_val, tod_val, obs_count):
+        time_labels = ["Day ☀️", "Evening 🌆", "Night 🌙"]
         with hud_placeholder.container():
             m1, m2, m3, m4, m5 = st.columns(5)
-
-            m1.metric("🏆 Current Score", f"{total_score} pts")
-            m1.markdown(
-                f"""
-                <div style="
-                    color: #334155;
-                    font-size: 14px;
-                    font-weight: 600;
-                    margin-top: -12px;
-                ">
-                    {reward:+} pts
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
-
+            m1.metric("🏆 Current Score", f"{total_score} pts", delta=f"{last_reward:+} pts")
             m2.metric("👣 Steps Taken", f"{step_num}")
-            m3.metric(
-                "🌦️ Weather",
-                "Rainy 🌧️" if env.current_weather == 1 else "Sunny ☀️"
-            )
-            time_labels = ["Day ☀️", "Evening 🌆", "Night 🌙"]
-            m4.metric(
-                "🕒 Time of Day",
-                time_labels[env.current_time_of_day]
-            )
-            m5.metric(
-                "🚧 Moving Obstacles",
-                f"{len(env.pedestrian_positions) + len(env.car_positions)}"
-            )
+            m3.metric("🌦️ Weather", "Rainy 🌧️" if weather_val == 1 else "Sunny ☀️")
+            m4.metric("🕒 Time of Day", time_labels[tod_val])
+            m5.metric("🚧 Active Obstacles", f"{obs_count}")
 
+    # ---- RUN LIVE SIMULATION (ONLY IF NOT ALREADY FINISHED) ----
+    if not st.session_state.get("sim_finished", False):
+        try:
+            state, info = env.reset(options=cfg)
+        except ValueError as err:
+            note("error", f"Invalid order: {err}")
+            st.button("🏠 Back to Order Selection", on_click=go_to_order)
+            st.stop()
+
+        total_score = 0
+        step_num = 0
+        terminated = truncated = False
+        previous_node = None
+        visited_nodes = [env.current_location]
+        logs = []
+        log_records = []
+        retreat_count = 0
+        rain_violations = 0
+
+        render_hud(total_score, 0, step_num, env.current_weather, env.current_time_of_day,
+                   len(env.pedestrian_positions) + len(env.car_positions))
         fig = render_campus_map(env, visited_nodes, env.current_location,
-                                env.target_destination, total_score,
-                                step_num, status_msg,
-                                prev_positions=prev_positions)
-        map_placeholder.pyplot(fig)
+                                env.target_destination, total_score, step_num, "Order Dispatched")
+        map_placeholder.pyplot(fig, use_container_width=True)
         plt.close(fig)
-        intent_placeholder.markdown(describe_obstacles(env))
+        intent_placeholder.markdown(render_obstacle_pills_html(env), unsafe_allow_html=True)
+        time.sleep(0.7)
 
-        log_placeholder.markdown("\n\n".join(logs[-10:]))
-        time.sleep(STEP_DELAY)
+        reward = 0
+        status_msg = "Order Dispatched"
+        while not (terminated or truncated):
+            step_num += 1
+            action = choose_action(env, state, selected_model, q_table, previous_node)
+            previous_location = env.current_location
+            prev_positions = {"ped": list(env.pedestrian_positions), "car": list(env.car_positions)}
+
+            state, reward, terminated, truncated, info = env.step(action)
+            total_score += reward
+
+            outcome = info.get("outcome")
+            if info.get("retreated"):
+                retreat_count += 1
+            if info.get("rain_violation"):
+                rain_violations += 1
+
+            moved = env.current_location != previous_location
+            if moved:
+                previous_node = previous_location
+                visited_nodes.append(env.current_location)
+
+            here = env.node_names[env.current_location]
+            if outcome == "wait":
+                status_msg, log_line = "Robot pulled over (WAIT)", "WAIT"
+            elif outcome == "retreat":
+                blocked_idx = info.get("blocked_node")
+                blocked = env.node_names[blocked_idx] if blocked_idx is not None else "obstacle"
+                status_msg = f"Blocked at {blocked} -> Retreat"
+                log_line = f"RETREAT (blocked at {blocked})"
+            elif outcome == "invalid":
+                status_msg, log_line = "Invalid action", "INVALID action"
+            elif outcome == "ped_collision":
+                status_msg, log_line = f"Pedestrian collision at {here}", f"MOVE to {here} -> PEDESTRIAN COLLISION"
+            elif outcome == "car_collision":
+                status_msg, log_line = f"Car collision at {here}", f"MOVE to {here} -> CAR COLLISION"
+            elif outcome == "goal":
+                status_msg, log_line = f"Delivered at {here}!", f"MOVE to {here} -> DELIVERED"
+            else:
+                status_msg, log_line = f"Moved to {here}", f"MOVE to {here}"
+
+            logs.append(f"**Step {step_num}:** {log_line} | Reward: `{reward:+} pts`")
+            log_records.append({
+                "Step": step_num,
+                "From": env.node_names[previous_location],
+                "To": here,
+                "Outcome": outcome,
+                "Reward": reward,
+                "Cumulative_Score": total_score,
+                "Weather": info["weather_str"],
+                "Time_of_Day": info["time_of_day_str"],
+                "Traffic": info["traffic_str"],
+                "Rain_Violation": info["rain_violation"],
+            })
+
+            render_hud(total_score, reward, step_num, env.current_weather, env.current_time_of_day,
+                       len(env.pedestrian_positions) + len(env.car_positions))
+            fig = render_campus_map(env, visited_nodes, env.current_location,
+                                    env.target_destination, total_score, step_num,
+                                    status_msg, prev_positions=prev_positions)
+            map_placeholder.pyplot(fig, use_container_width=True)
+            plt.close(fig)
+            intent_placeholder.markdown(render_obstacle_pills_html(env), unsafe_allow_html=True)
+            log_placeholder.markdown("  \n".join(logs[-10:]))
+            time.sleep(STEP_DELAY)
+
+        # Save snapshot so clicking Export CSV doesn't replay the whole simulation
+        st.session_state.sim_data = {
+            "total_score": total_score,
+            "last_reward": reward,
+            "step_num": step_num,
+            "final_outcome": info.get("outcome"),
+            "truncated": truncated,
+            "current_location": env.current_location,
+            "target_destination": env.target_destination,
+            "current_weather": env.current_weather,
+            "current_time_of_day": env.current_time_of_day,
+            "selected_food": env.selected_food,
+            "pedestrian_positions": list(env.pedestrian_positions),
+            "car_positions": list(env.car_positions),
+            "visited_nodes": visited_nodes,
+            "status_msg": status_msg,
+            "logs": logs,
+            "log_records": log_records,
+            "retreat_count": retreat_count,
+            "rain_violations": rain_violations,
+            "obstacle_pills_html": render_obstacle_pills_html(env),
+        }
+        st.session_state.sim_finished = True
+        if info.get("outcome") == "goal":
+            st.balloons()
+
+    else:
+        # Restore finished state cleanly on rerun (e.g. after clicking Export CSV)
+        d = st.session_state.sim_data
+        env.current_location = d["current_location"]
+        env.target_destination = d["target_destination"]
+        env.current_weather = d["current_weather"]
+        env.current_time_of_day = d["current_time_of_day"]
+        env.selected_food = d["selected_food"]
+        env.pedestrian_positions = list(d["pedestrian_positions"])
+        env.car_positions = list(d["car_positions"])
+
+        render_hud(d["total_score"], d["last_reward"], d["step_num"],
+                   d["current_weather"], d["current_time_of_day"],
+                   len(d["pedestrian_positions"]) + len(d["car_positions"]))
+        fig = render_campus_map(env, d["visited_nodes"], d["current_location"],
+                                d["target_destination"], d["total_score"],
+                                d["step_num"], d["status_msg"])
+        map_placeholder.pyplot(fig, use_container_width=True)
+        plt.close(fig)
+        intent_placeholder.markdown(d["obstacle_pills_html"], unsafe_allow_html=True)
+        log_placeholder.markdown("  \n".join(d["logs"][-10:]))
 
     # ======================================
-    # FINAL RESULT
+    # HERO RESULT CARD & CSV EXPORT
     # ======================================
-
-    final_outcome = info.get("outcome")
+    d = st.session_state.sim_data
+    final_outcome = d["final_outcome"]
 
     if final_outcome == "goal":
-        note("success",
-             f"🎉 DELIVERY SUCCESSFUL! Delivered {env.selected_food} to "
-             f"{env.node_names[env.target_destination]} in {step_num} steps. "
-             f"Final Score: {total_score} pts")
-        st.balloons()
-
+        hero_cls = ""
+        hero_title = "🎉 Delivery Completed Successfully!"
+        hero_sub = (
+            f"Delivered <b>{html.escape(d['selected_food'])}</b> to "
+            f"<b>{html.escape(env.node_names[d['target_destination']])}</b> "
+            f"using <b>{html.escape(selected_model)}</b>."
+        )
+        accent_col = "#0d9488"
     elif final_outcome in ("ped_collision", "car_collision"):
         kind = "pedestrian" if final_outcome == "ped_collision" else "car"
-        note("error",
-             f"🚨 DELIVERY FAILED! The robot collided with a {kind} at "
-             f"{env.node_names[env.current_location]}. "
-             f"Final Score: {total_score} pts")
+        hero_cls = "failed"
+        hero_title = f"🚨 Delivery Failed — {kind.title()} Collision"
+        hero_sub = f"Robot collided with a {kind} at <b>{html.escape(env.node_names[d['current_location']])}</b>."
+        accent_col = "#dc2626"
+    else:
+        hero_cls = "failed"
+        hero_title = "⏰ Time Limit Reached"
+        hero_sub = f"Simulation ended after reaching the {env.max_steps}-step horizon."
+        accent_col = "#d97706"
 
-    elif truncated:
-        note("warning", f"⏰ TIME LIMIT REACHED after {step_num} steps. "
-                        f"Final Score: {total_score} pts")
+    rain_status = "100% Dry" if d["rain_violations"] == 0 else f"{d['rain_violations']} Open-Air"
 
-    st.button("🏠 Back to Order Selection", on_click=go_to_order)
+    st.markdown(f"""
+    <div class="hero-result-card {hero_cls}">
+        <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:18px;">
+            <div>
+                <div style="color:{accent_col}; font-size:22px; font-weight:900; margin-bottom:4px;">{hero_title}</div>
+                <div style="color:#475569; font-size:14px;">{hero_sub}</div>
+            </div>
+            <div style="display:flex; gap:26px; flex-wrap:wrap;">
+                <div style="text-align:center;">
+                    <div style="color:{accent_col}; font-size:24px; font-weight:900;">{d['total_score']} pts</div>
+                    <div style="color:#64748b; font-size:10.5px; font-weight:700; letter-spacing:0.5px;">FINAL SCORE</div>
+                </div>
+                <div style="text-align:center;">
+                    <div style="color:{accent_col}; font-size:24px; font-weight:900;">{d['step_num']}</div>
+                    <div style="color:#64748b; font-size:10.5px; font-weight:700; letter-spacing:0.5px;">STEPS</div>
+                </div>
+                <div style="text-align:center;">
+                    <div style="color:{accent_col}; font-size:24px; font-weight:900;">{d['retreat_count']}</div>
+                    <div style="color:#64748b; font-size:10.5px; font-weight:700; letter-spacing:0.5px;">RETREATS</div>
+                </div>
+                <div style="text-align:center;">
+                    <div style="color:{accent_col}; font-size:24px; font-weight:900;">{rain_status}</div>
+                    <div style="color:#64748b; font-size:10.5px; font-weight:700; letter-spacing:0.5px;">RAIN SAFETY</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    csv_bytes = pd.DataFrame(d["log_records"]).to_csv(index=False).encode("utf-8")
+    btn_c1, btn_c2 = st.columns(2)
+    with btn_c1:
+        st.button("🏠 Back to Order Selection", on_click=go_to_order, use_container_width=True)
+    with btn_c2:
+        st.download_button(
+            label="📥 Export Delivery Log (CSV)",
+            data=csv_bytes,
+            file_name=f"delivery_log_{selected_model.lower().replace(' ', '_')}.csv",
+            mime="text/csv",
+            use_container_width=True
+        )
