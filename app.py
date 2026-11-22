@@ -33,7 +33,6 @@ Q_TABLE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "q_table
 
 # ==========================================
 # 1. PAGE CONFIGURATION & LIGHT-MODE STYLING
-# (the theme itself is forced to light by .streamlit/config.toml)
 # ==========================================
 
 st.set_page_config(
@@ -44,8 +43,7 @@ st.set_page_config(
 
 st.markdown("""
 <style>
-    /* ---- Force a complete light look, independent of the user's/browser's
-       Streamlit theme (so no white-on-white text that only shows on hover) ---- */
+    /* ---- Force a complete light look ---- */
     :root { color-scheme: light; }
 
     html, body, .stApp,
@@ -57,6 +55,22 @@ st.markdown("""
     }
     [data-testid="stSidebar"], [data-testid="stSidebar"] > div {
         background-color: #f1f5f9 !important;
+    }
+
+    /* ---- Compact top/bottom page padding so View 1 fits in one screen ---- */
+    .block-container {
+        padding-top: 1.5rem !important;
+        padding-bottom: 1.2rem !important;
+        max-width: 1400px;
+    }
+
+    /* ---- Unified white cards for st.container(border=True) ---- */
+    [data-testid="stVerticalBlockBorderWrapper"] {
+        background-color: #ffffff !important;
+        border: 1px solid #cbd5e1 !important;
+        border-radius: 14px !important;
+        padding: 0.6rem 0.8rem !important;
+        box-shadow: 0 2px 10px rgba(15, 23, 42, 0.05) !important;
     }
 
     /* ---- Normal text ---- */
@@ -77,6 +91,7 @@ st.markdown("""
     .stApp [data-baseweb="select"] > div {
         background-color: #ffffff !important;
         border: 1px solid #cbd5e1 !important;
+        border-radius: 8px !important;
     }
     .stApp [data-baseweb="select"] *,
     .stApp [data-baseweb="select"] input {
@@ -85,7 +100,6 @@ st.markdown("""
     }
     .stApp [data-baseweb="select"] svg { fill: #475569 !important; }
 
-    /* the opened list lives in a popover outside .stApp */
     [data-baseweb="popover"], [data-baseweb="popover"] > div,
     [data-baseweb="menu"], ul[role="listbox"] {
         background-color: #ffffff !important;
@@ -129,9 +143,7 @@ st.markdown("""
         background-color: #f1f5f9 !important;
     }
 
-    /* ---- Info / warning / success / error boxes ----
-       The inner containers carry their own (dark) background, so every
-       layer is made white/transparent, otherwise dark text sits on dark. */
+    /* ---- Alerts ---- */
     .stApp [data-testid="stAlert"],
     .stApp [data-testid="stAlertContainer"],
     .stApp [data-testid="stNotification"] {
@@ -149,7 +161,6 @@ st.markdown("""
         color: #1e293b !important;
         -webkit-text-fill-color: #1e293b !important;
     }
-    /* avoid a double border when the outer and inner box both match */
     .stApp [data-testid="stAlert"] [data-testid="stAlertContainer"] {
         border: none !important;
     }
@@ -162,8 +173,6 @@ st.markdown("""
         border-radius: 10px;
         padding: 10px 14px;
     }
-    
-    /* Metric label and value */
     .stApp [data-testid="stMetricLabel"],
     .stApp [data-testid="stMetricLabel"] *,
     .stApp [data-testid="stMetricValue"],
@@ -171,8 +180,6 @@ st.markdown("""
         color: #1e293b !important;
         -webkit-text-fill-color: #1e293b !important;
     }
-    
-    /* Metric delta (+/- points) */
     .stApp [data-testid="stMetricDelta"],
     .stApp [data-testid="stMetricDelta"] *,
     .stApp [data-testid="stMetricDelta"] svg {
@@ -182,7 +189,7 @@ st.markdown("""
         opacity: 1 !important;
     }
 
-    /* ---- Buttons: white text on the teal gradient (always visible) ---- */
+    /* ---- Buttons ---- */
     .stApp div.stButton > button,
     .stApp [data-testid="stBaseButton-secondary"],
     .stApp [data-testid="stBaseButton-primary"] {
@@ -204,7 +211,6 @@ st.markdown("""
     .stApp [data-testid="stBaseButton-secondary"]:hover {
         background: linear-gradient(90deg, #0f766e 0%, #0891b2 100%) !important;
     }
-    
 </style>
 """, unsafe_allow_html=True)
 
@@ -261,7 +267,6 @@ def load_q_table(path=Q_TABLE_PATH):
         return None
 
     table = np.load(path)
-
     expected_shape = (36, 36, 2, 3, 3, 37)
 
     if table.shape != expected_shape:
@@ -278,8 +283,6 @@ def load_q_table(path=Q_TABLE_PATH):
 # 3. 2D CAMPUS MAP RENDERER
 # ==========================================
 
-# ---- Vector icons (drawn in points, so they never get stretched by the map) ----
-
 def _round_box(x, y, w, h, r, fc, ec, lw=1.2):
     return FancyBboxPatch((x, y), w, h, boxstyle=f"round,pad=0,rounding_size={r}",
                           fc=fc, ec=ec, lw=lw)
@@ -288,14 +291,14 @@ def _round_box(x, y, w, h, r, fc, ec, lw=1.2):
 def icon_robot(scale=1.0):
     k = scale
     da = DrawingArea(30 * k, 38 * k, 0, 0)
-    for cx in (9, 21):                                          # wheels
+    for cx in (9, 21):
         da.add_artist(Circle((cx * k, 4 * k), 3.6 * k, fc="#334155", ec="white", lw=0.8))
-    da.add_artist(_round_box(6 * k, 6 * k, 18 * k, 11 * k, 2.5 * k, "#0e7490", "#164e63"))   # body
-    da.add_artist(Rectangle((8 * k, 9 * k), 14 * k, 3 * k, fc="#67e8f9", ec="none"))          # chest light
-    da.add_artist(Rectangle((14 * k, 29 * k), 2 * k, 5 * k, fc="#164e63", ec="none"))         # antenna
+    da.add_artist(_round_box(6 * k, 6 * k, 18 * k, 11 * k, 2.5 * k, "#0e7490", "#164e63"))
+    da.add_artist(Rectangle((8 * k, 9 * k), 14 * k, 3 * k, fc="#67e8f9", ec="none"))
+    da.add_artist(Rectangle((14 * k, 29 * k), 2 * k, 5 * k, fc="#164e63", ec="none"))
     da.add_artist(Circle((15 * k, 35 * k), 2.4 * k, fc="#f97316", ec="#9a3412", lw=0.8))
-    da.add_artist(_round_box(4 * k, 17 * k, 22 * k, 12 * k, 3.5 * k, "#06b6d4", "#164e63", 1.5))  # head
-    for cx in (11, 19):                                         # eyes
+    da.add_artist(_round_box(4 * k, 17 * k, 22 * k, 12 * k, 3.5 * k, "#06b6d4", "#164e63", 1.5))
+    for cx in (11, 19):
         da.add_artist(Circle((cx * k, 23 * k), 3 * k, fc="white", ec="#164e63", lw=0.8))
         da.add_artist(Circle((cx * k, 23 * k), 1.3 * k, fc="#0f172a", ec="none"))
     return da
@@ -304,10 +307,10 @@ def icon_robot(scale=1.0):
 def icon_person(scale=1.0):
     k = scale
     da = DrawingArea(22 * k, 33 * k, 0, 0)
-    for lx in (6, 12):                                          # legs
+    for lx in (6, 12):
         da.add_artist(Rectangle((lx * k, 1 * k), 4 * k, 10 * k, fc="#a16207", ec="#713f12", lw=0.8))
-    da.add_artist(_round_box(3.5 * k, 9 * k, 15 * k, 13 * k, 5 * k, "#facc15", "#854d0e", 1.3))  # torso
-    da.add_artist(Circle((11 * k, 27.5 * k), 5 * k, fc="#fde68a", ec="#854d0e", lw=1.3))         # head
+    da.add_artist(_round_box(3.5 * k, 9 * k, 15 * k, 13 * k, 5 * k, "#facc15", "#854d0e", 1.3))
+    da.add_artist(Circle((11 * k, 27.5 * k), 5 * k, fc="#fde68a", ec="#854d0e", lw=1.3))
     return da
 
 
@@ -315,14 +318,14 @@ def icon_car(scale=1.0):
     k = scale
     da = DrawingArea(38 * k, 23 * k, 0, 0)
     da.add_artist(Polygon([(10 * k, 13 * k), (13 * k, 21 * k), (27 * k, 21 * k), (30 * k, 13 * k)],
-                          closed=True, fc="#ef4444", ec="#7f1d1d", lw=1.3))                       # cabin
+                          closed=True, fc="#ef4444", ec="#7f1d1d", lw=1.3))
     da.add_artist(Polygon([(13 * k, 14 * k), (15 * k, 19.5 * k), (19.5 * k, 19.5 * k), (19.5 * k, 14 * k)],
-                          closed=True, fc="#bae6fd", ec="none"))                                   # windows
+                          closed=True, fc="#bae6fd", ec="none"))
     da.add_artist(Polygon([(20.5 * k, 14 * k), (20.5 * k, 19.5 * k), (26 * k, 19.5 * k), (28 * k, 14 * k)],
                           closed=True, fc="#bae6fd", ec="none"))
-    da.add_artist(_round_box(2 * k, 6 * k, 34 * k, 8 * k, 3 * k, "#ef4444", "#7f1d1d", 1.3))      # body
-    da.add_artist(Circle((33.5 * k, 10 * k), 1.5 * k, fc="#fef08a", ec="none"))                    # headlight
-    for cx in (11, 27):                                         # wheels
+    da.add_artist(_round_box(2 * k, 6 * k, 34 * k, 8 * k, 3 * k, "#ef4444", "#7f1d1d", 1.3))
+    da.add_artist(Circle((33.5 * k, 10 * k), 1.5 * k, fc="#fef08a", ec="none"))
+    for cx in (11, 27):
         da.add_artist(Circle((cx * k, 6 * k), 4.2 * k, fc="#1f2937", ec="white", lw=0.8))
         da.add_artist(Circle((cx * k, 6 * k), 1.6 * k, fc="#9ca3af", ec="none"))
     return da
@@ -337,11 +340,8 @@ def place_icon(ax, da, x, y, dx=0, dy=0, zorder=10):
     ax.add_artist(ab)
 
 
-
 def draw_campus_background(ax):
     """Draw the grass, landscaping and trees behind the campus map."""
-
-    # Grass background
     ax.add_patch(
         Rectangle(
             (-28, 2), 130, 101,
@@ -351,7 +351,6 @@ def draw_campus_background(ax):
         )
     )
 
-    # Green spaces
     green_spaces = [
         (5, 88, 13, 7),
         (39, 82, 10, 5),
@@ -373,7 +372,6 @@ def draw_campus_background(ax):
             )
         )
 
-    # Trees
     tree_positions = [
         (4, 83), (20, 65), (25, 57), (47, 75),
         (58, 83), (88, 88), (96, 78), (5, 40),
@@ -391,7 +389,6 @@ def draw_campus_background(ax):
                 zorder=0.9
             )
         )
-
         ax.add_patch(
             Circle(
                 (x - 0.4, y + 0.4), 0.5,
@@ -402,13 +399,8 @@ def draw_campus_background(ax):
         )
 
 
-
-
-
 def icon_waypoint(node_id, node_name=""):
     """Draw small, box-free icons for campus locations."""
-
-    # Roof Top B: no icon
     name = node_name.lower()
     if "roof top" in name or "rooftop" in name:
         return None
@@ -517,9 +509,6 @@ def icon_waypoint(node_id, node_name=""):
     return da
 
 
-
-
-
 def render_campus_map(env, visited_nodes, current_node, target_node,
                       score, step_num, status_text, show_obstacles=True,
                       prev_positions=None):
@@ -529,10 +518,10 @@ def render_campus_map(env, visited_nodes, current_node, target_node,
 
     fig, ax = plt.subplots(figsize=(13, 8.2), facecolor=bg_color)
     ax.set_facecolor(bg_color)
-    
+
     # 3.0 Campus background
     draw_campus_background(ax)
-    
+
     # 3.1 Road connections
     drawn_edges = set()
     for u, neighbors in env.graph.items():
@@ -557,14 +546,8 @@ def render_campus_map(env, visited_nodes, current_node, target_node,
         ax.plot([x1, x2], [y1, y2], color="#06b6d4", linewidth=5,
                 alpha=0.95, zorder=3)
 
-    
-    
-    
-    
-    
     # 3.3 Waypoint icons and labels
     for node_id, (x, y) in env.node_coords.items():
-
         name = env.node_names[node_id]
         name_lower = name.lower()
 
@@ -579,7 +562,6 @@ def render_campus_map(env, visited_nodes, current_node, target_node,
 
         marker = icon_waypoint(node_id, name)
 
-        # Initial positions for icons and labels
         label_offsets = {
             0: (-30, -28),
             1: (12, 18),
@@ -591,23 +573,19 @@ def render_campus_map(env, visited_nodes, current_node, target_node,
 
         dx, dy = label_offsets.get(node_id, (12, 18))
 
-        # Bus stop: show icon only, without a text label
         if "bus stop" in name_lower:
             if marker is not None:
                 place_icon(ax, marker, x, y, dx, dy, zorder=7)
             continue
 
-        # Roof Top B: text only, without an icon
         if marker is None:
             label_dx = 12
             label_dy = 18
-
         else:
             place_icon(ax, marker, x, y, dx, dy, zorder=7)
             label_dx = dx + 13 if dx < 0 else dx + 17
             label_dy = dy
 
-        # Draw each waypoint name only once
         ax.annotate(
             name,
             (x, y),
@@ -621,9 +599,7 @@ def render_campus_map(env, visited_nodes, current_node, target_node,
             zorder=8
         )
 
-
-
-    # 3.4 Moving obstacles: person and car icons, plus an arrow for the last move
+    # 3.4 Moving obstacles
     if show_obstacles:
         for kind, positions, make_icon, base_dx, base_dy, arrow_color, tag in (
             ("ped", env.pedestrian_positions, icon_person, -15, -12, "#a16207", "P"),
@@ -650,9 +626,8 @@ def render_campus_map(env, visited_nodes, current_node, target_node,
     rx, ry = env.node_coords[current_node]
     place_icon(ax, icon_robot(), rx, ry, 0, 9, zorder=12)
 
-    # 3.6 HUD (dark text on a white box so it is readable in light mode)
+    # 3.6 HUD
     weather_banner = "RAINY" if is_rainy else "SUNNY"
-
     time_banner = ["DAY", "EVENING", "NIGHT"][env.current_time_of_day]
     obstacle_text = ""
     if show_obstacles:
@@ -678,7 +653,7 @@ def render_campus_map(env, visited_nodes, current_node, target_node,
             bbox=dict(boxstyle="round,pad=0.6", facecolor="#ffffff",
                       edgecolor="#06b6d4", linewidth=2, alpha=0.95))
 
-    # 3.7 Icon key (left margin, below the HUD)
+    # 3.7 Icon key
     ax.add_patch(FancyBboxPatch((-27.5, 50), 21, 22, boxstyle="round,pad=0.4,rounding_size=1.5",
                                 fc="#ffffff", ec="#cbd5e1", lw=1.2, alpha=0.95, zorder=11))
     ax.text(-26.5, 70.2, "ICON KEY", fontsize=8, fontweight="bold",
@@ -690,7 +665,7 @@ def render_campus_map(env, visited_nodes, current_node, target_node,
         ax.text(-19, row_y, label, fontsize=8, color="#1e293b",
                 va="center", ha="left", zorder=12)
 
-    # 3.8 Legend for nodes and paths
+    # 3.8 Legend
     legend_elements = [
         patches.Patch(facecolor="#10b981", edgecolor="#047857", label="Destination"),
         patches.Patch(facecolor="#f97316", edgecolor="#c2410c", label="Restaurant"),
@@ -715,8 +690,7 @@ def render_campus_map(env, visited_nodes, current_node, target_node,
 # ==========================================
 
 def choose_action(env, state, model_name, q_table, previous_node):
-    """Trained Q-table for 'Q-Learning'; random valid action otherwise
-    (the other algorithms are not integrated yet)."""
+    """Trained Q-table for 'Q-Learning'; random valid action otherwise."""
     valid = env.valid_actions()
 
     if model_name == "Q-Learning" and q_table is not None:
@@ -734,7 +708,6 @@ def choose_action(env, state, model_name, q_table, previous_node):
 
 # ==========================================
 # 5. NAVIGATION CALLBACKS
-# (callbacks run BEFORE the rerun, so a button never replays the simulation)
 # ==========================================
 
 def go_to_order():
@@ -750,142 +723,150 @@ if "page" not in st.session_state:
 
 
 # ==========================================
-# VIEW 1: CUSTOMER ORDER SELECTION
+# VIEW 1: CUSTOMER ORDER SELECTION (SINGLE-SCREEN CARD LAYOUT)
 # ==========================================
 
 if st.session_state.page == "order":
 
-    st.title("🍔 TAR UMT Autonomous Campus Food Delivery")
-    st.markdown(
-        "Select your delivery destination, restaurant, food and weather. "
-        "The simulation shows the robot moving among pedestrians and cars "
-        "on the campus map."
-    )
+    # Compact Header
+    st.markdown("""
+        <div style="margin-bottom: 0.8rem;">
+            <h2 style="margin: 0; font-size: 1.75rem; font-weight: 800; color: #0f172a;">
+                🍔 TAR UMT Autonomous Campus Food Delivery
+            </h2>
+            <p style="margin: 4px 0 0 0; font-size: 0.95rem; color: #475569;">
+                Configure your order, RL model, and campus conditions below — preview updates live on the right.
+            </p>
+        </div>
+    """, unsafe_allow_html=True)
 
-    col1, col2 = st.columns([1.2, 1])
+    col_form, col_map = st.columns([1.05, 1.35], gap="large")
 
-    
-    with col1:
-        st.subheader("📋 Step 1 – Configure Your Order")
-    
-        target_options = {env.node_names[n]: n for n in env.target_destinations}
-        selected_target_name = st.selectbox(
-            "🎯 Choose Delivery Destination:", list(target_options.keys())
-        )
-        chosen_target = target_options[selected_target_name]
-    
-        start_options = {env.node_names[n]: n for n in env.start_locations}
-        selected_start_name = st.selectbox(
-            "🏪 Choose Restaurant:", list(start_options.keys())
-        )
-        chosen_start = start_options[selected_start_name]
-    
-        chosen_food = st.selectbox(
-            f"🍱 Select Food from {selected_start_name}:",
-            env.food_menus[chosen_start]
-        )
-    
-        # Step 2 – Select AI Model
-        st.markdown("---")
-        st.subheader("🤖 Step 2 – Select Reinforcement Learning Model")
-    
-        selected_model = st.selectbox(
-            "Choose an AI model:",
-            ["Q-Learning", "SARSA", "DQN", "A2C", "REINFORCE"]
-        )
-    
-        # Step 3 – Weather
-        st.markdown("---")
-        st.subheader("🌦️ Step 3 – Weather")
-    
-        weather_mode = st.radio(
-            "Weather Condition:",
-            ["🎲 Auto Random Weather", "☀️ Force Sunny", "🌧️ Force Rainy"],
-            horizontal=True
-        )
-    
-        # Step 4 – Time of Day
-        st.markdown("---")
-        st.subheader("🕒 Step 4 – Time of Day")
-    
-        time_mode = st.radio(
-            "Time Condition:",
-            [
-                "🎲 Auto Random Time",
-                "☀️ Day",
-                "🌆 Evening",
-                "🌙 Night"
-            ],
-            horizontal=True
-        )
-    
-        st.write("")
-    
-        # Confirm Order
-        if st.button("🚀 Confirm Order & Launch Live Tracking"):
-    
-            # Weather configuration
-            if weather_mode == "☀️ Force Sunny":
-                weather_value = 0
-            elif weather_mode == "🌧️ Force Rainy":
-                weather_value = 1
-            else:
-                weather_value = random.choice([0, 1])
-    
-            # Order configuration
-            order_config = {
-                "start": chosen_start,
-                "target": chosen_target,
-                "food": chosen_food,
-                "weather": weather_value,
+    # ---- LEFT CARD: ALL 4 STEPS IN ONE UNIFIED BOX (NO SCROLLING) ----
+    with col_form:
+        with st.container(border=True):
+            st.markdown("#### 📋 Order & Simulation Setup")
+
+            target_options = {env.node_names[n]: n for n in env.target_destinations}
+            start_options = {env.node_names[n]: n for n in env.start_locations}
+
+            # Row 1: Restaurant & Destination
+            r1_c1, r1_c2 = st.columns(2)
+            with r1_c1:
+                selected_start_name = st.selectbox(
+                    "🏪 1. Restaurant", list(start_options.keys())
+                )
+                chosen_start = start_options[selected_start_name]
+            with r1_c2:
+                selected_target_name = st.selectbox(
+                    "🎯 2. Destination", list(target_options.keys())
+                )
+                chosen_target = target_options[selected_target_name]
+
+            # Row 2: Food Item & RL Model
+            r2_c1, r2_c2 = st.columns(2)
+            with r2_c1:
+                chosen_food = st.selectbox(
+                    "🍱 3. Food Item", env.food_menus[chosen_start]
+                )
+            with r2_c2:
+                selected_model = st.selectbox(
+                    "🤖 4. RL Model",
+                    ["Q-Learning", "SARSA", "DQN", "A2C", "REINFORCE"]
+                )
+
+            # Row 3: Weather & Time of Day
+            r3_c1, r3_c2 = st.columns(2)
+            with r3_c1:
+                weather_mode = st.selectbox(
+                    "🌦️ 5. Weather",
+                    ["🎲 Auto Random", "☀️ Force Sunny", "🌧️ Force Rainy"]
+                )
+            with r3_c2:
+                time_mode = st.selectbox(
+                    "🕒 6. Time of Day",
+                    ["🎲 Auto Random", "☀️ Day", "🌆 Evening", "🌙 Night"]
+                )
+
+            # Compact Live Order Summary Strip
+            st.markdown(
+                f"""
+                <div style="
+                    background: #f0f9ff;
+                    border: 1px solid #bae6fd;
+                    border-left: 4px solid #06b6d4;
+                    border-radius: 10px;
+                    padding: 10px 14px;
+                    margin: 10px 0 14px 0;
+                    font-size: 0.88rem;
+                    line-height: 1.55;
+                    color: #0f172a;
+                ">
+                    <strong>🧾 Order Summary</strong><br>
+                    <b>Route:</b> {html.escape(selected_start_name)} ➜ {html.escape(selected_target_name)}
+                    &nbsp;|&nbsp; <b>Item:</b> {html.escape(chosen_food)}<br>
+                    <b>Agent:</b> {html.escape(selected_model)}
+                    &nbsp;|&nbsp; <b>Conditions:</b> {html.escape(weather_mode)} · {html.escape(time_mode)}
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+
+            # Launch Button inside the same unified box
+            if st.button("🚀 Confirm Order & Launch Live Tracking", use_container_width=True):
+                if weather_mode == "☀️ Force Sunny":
+                    weather_value = 0
+                elif weather_mode == "🌧️ Force Rainy":
+                    weather_value = 1
+                else:
+                    weather_value = random.choice([0, 1])
+
+                order_config = {
+                    "start": chosen_start,
+                    "target": chosen_target,
+                    "food": chosen_food,
+                    "weather": weather_value,
+                }
+
+                time_mapping = {
+                    "☀️ Day": 0,
+                    "🌆 Evening": 1,
+                    "🌙 Night": 2,
+                }
+                if time_mode in time_mapping:
+                    order_config["time_of_day"] = time_mapping[time_mode]
+
+                st.session_state.order_config = order_config
+                st.session_state.selected_model = selected_model
+                st.session_state.page = "tracking"
+                st.rerun()
+
+    # ---- RIGHT CARD: CAMPUS MAP PREVIEW ----
+    with col_map:
+        with st.container(border=True):
+            st.markdown("#### 🗺️ Campus Map Preview")
+
+            preview_env = CampusDeliveryEnv(obstacle_mode=OBSTACLE_MODE)
+            preview_env.current_location = chosen_start
+            preview_env.target_destination = chosen_target
+            preview_env.current_weather = 1 if weather_mode == "🌧️ Force Rainy" else 0
+
+            preview_time_map = {
+                "☀️ Day": 0,
+                "🌆 Evening": 1,
+                "🌙 Night": 2,
             }
-    
-            # Time of day configuration
-            if time_mode == "☀️ Day":
-                order_config["time_of_day"] = 0
-            elif time_mode == "🌆 Evening":
-                order_config["time_of_day"] = 1
-            elif time_mode == "🌙 Night":
-                order_config["time_of_day"] = 2
-    
-            # Auto Random Time: environment selects it automatically
-    
-            st.session_state.order_config = order_config
-            st.session_state.selected_model = selected_model
-            st.session_state.page = "tracking"
-    
-            st.rerun()
+            # Default preview to Day (0) when Auto Random is selected to avoid flicker
+            preview_env.current_time_of_day = preview_time_map.get(time_mode, 0)
+            preview_env.selected_food = chosen_food
 
-
-    with col2:
-        st.subheader("🗺️ Campus Map Preview")
-
-        preview_env = CampusDeliveryEnv(obstacle_mode=OBSTACLE_MODE)
-        preview_env.current_location = chosen_start
-        preview_env.target_destination = chosen_target
-        preview_env.current_weather = (
-            1 if weather_mode == "🌧️ Force Rainy" else 0
-        )
-        
-        time_mapping = {
-            "☀️ Day": 0,
-            "🌆 Evening": 1,
-            "🌙 Night": 2
-        }
-        
-        if time_mode == "🎲 Auto Random Time":
-            preview_env.current_time_of_day = random.choice([0, 1, 2])
-        else:
-            preview_env.current_time_of_day = time_mapping[time_mode]
-        
-        preview_env.selected_food = chosen_food
-
-        preview_fig = render_campus_map(
-            preview_env, [chosen_start], chosen_start, chosen_target,
-            score=0, step_num=0, status_text="Waiting for Order",
-            show_obstacles=False)
-        st.pyplot(preview_fig)
-        plt.close(preview_fig)
+            preview_fig = render_campus_map(
+                preview_env, [chosen_start], chosen_start, chosen_target,
+                score=0, step_num=0, status_text="Waiting for Order",
+                show_obstacles=False
+            )
+            st.pyplot(preview_fig, use_container_width=True)
+            plt.close(preview_fig)
 
 
 # ==========================================
@@ -985,11 +966,9 @@ elif st.session_state.page == "tracking":
         logs.append(f"Step {step_num}: {log_line} | Reward: {reward:+} pts")
 
         with hud_placeholder.container():
-
             m1, m2, m3, m4, m5 = st.columns(5)
-        
+
             m1.metric("🏆 Current Score", f"{total_score} pts")
-        
             m1.markdown(
                 f"""
                 <div style="
@@ -1003,21 +982,17 @@ elif st.session_state.page == "tracking":
                 """,
                 unsafe_allow_html=True
             )
-        
+
             m2.metric("👣 Steps Taken", f"{step_num}")
-        
             m3.metric(
                 "🌦️ Weather",
                 "Rainy 🌧️" if env.current_weather == 1 else "Sunny ☀️"
             )
-        
             time_labels = ["Day ☀️", "Evening 🌆", "Night 🌙"]
-        
             m4.metric(
                 "🕒 Time of Day",
                 time_labels[env.current_time_of_day]
             )
-        
             m5.metric(
                 "🚧 Moving Obstacles",
                 f"{len(env.pedestrian_positions) + len(env.car_positions)}"
@@ -1035,7 +1010,7 @@ elif st.session_state.page == "tracking":
         time.sleep(STEP_DELAY)
 
     # ======================================
-    # FINAL RESULT (based on the real outcome, not just the location)
+    # FINAL RESULT
     # ======================================
 
     final_outcome = info.get("outcome")
