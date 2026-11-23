@@ -31,7 +31,7 @@ except ImportError:
 INTERP_FRAMES = 4                # sub-frames per step for smooth gliding (no teleporting)
 FRAME_DELAY = 0.14               # seconds per sub-frame (increase to slow down movement)
 STEP_PAUSE = 0.35                # brief pause after arriving at each node
-USE_ANTI_BACKTRACKING = True     # must match the setting used in training
+USE_ANTI_BACKTRACKING = False    # must match the setting used in training
 OBSTACLE_MODE = "routes"         # must match OBSTACLE_MODE used in training
 Q_TABLE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "q_table.npy")
 
