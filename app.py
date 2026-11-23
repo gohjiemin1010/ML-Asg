@@ -640,7 +640,7 @@ def load_q_table(path=Q_TABLE_PATH):
         return None
 
     table = np.load(path)
-    expected_shape = (36, 36, 2, 3, 3, 37)
+    expected_shape = (36, 36, 2, 3, 3, 6, 37)
 
     if table.shape != expected_shape:
         st.warning(
@@ -1173,7 +1173,7 @@ elif st.session_state.page == "tracking":
 
     # Compact Model Status Pill (replaces bulky alert banner)
     if selected_model == "Q-Learning" and q_table is not None:
-        model_pill_html = '<span class="status-pill-ok">Model: Q-Learning (Trained 5D Table)</span>'
+        model_pill_html = '<span class="status-pill-ok">Model: Q-Learning (Trained 6D Table)</span>'
     elif selected_model == "Q-Learning":
         model_pill_html = '<span class="status-pill-warn">q_table.npy missing — Random Fallback</span>'
     else:
